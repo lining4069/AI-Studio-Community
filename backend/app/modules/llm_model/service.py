@@ -1,13 +1,15 @@
 """
 LLM Model service for business logic.
 """
-from typing import List, Optional, Tuple
 
 from app.common.exceptions import NotFoundException, ValidationException
 from app.modules.llm_model.models import LlmModel
 from app.modules.llm_model.repository import LlmModelRepository
-from app.modules.llm_model.schema import LlmModelCreate, LlmModelUpdate, LlmModelResponse
-from app.utils.encrypt_utils import encrypt_api_key, decrypt_api_key
+from app.modules.llm_model.schema import (
+    LlmModelCreate,
+    LlmModelUpdate,
+)
+from app.utils.encrypt_utils import decrypt_api_key, encrypt_api_key
 
 
 class LlmModelService:
@@ -16,14 +18,14 @@ class LlmModelService:
     def __init__(self, repo: LlmModelRepository):
         self.repo = repo
 
-    async def create_model(
-        self, user_id: int, data: LlmModelCreate
-    ) -> LlmModel:
+    async def create_model(self, user_id: int, data: LlmModelCreate) -> LlmModel:
         """Create a new LLM model"""
         # Check if name already exists for this user
         existing = await self.repo.get_by_name(user_id, data.name)
         if existing:
-            raise ValidationException(f"LLM model with name '{data.name}' already exists")
+            raise ValidationException(
+                f"LLM model with name '{data.name}' already exists"
+            )
 
         # If setting as default, clear other defaults first
         if data.is_default:
@@ -49,7 +51,7 @@ class LlmModelService:
 
     async def list_models(
         self, user_id: int, page: int = 1, page_size: int = 20
-    ) -> Tuple[List[LlmModel], int]:
+    ) -> tuple[list[LlmModel], int]:
         """List LLM models with pagination"""
         return await self.repo.list_by_user(user_id, page, page_size)
 
@@ -75,7 +77,7 @@ class LlmModelService:
         model = await self.get_model(model_id, user_id)
         await self.repo.delete(model)
 
-    async def get_default_model(self, user_id: int) -> Optional[LlmModel]:
+    async def get_default_model(self, user_id: int) -> LlmModel | None:
         """Get the default LLM model"""
         return await self.repo.get_default(user_id)
 

@@ -1,9 +1,8 @@
 """
 LLM Model repository for database operations.
 """
-from typing import Optional, List, Tuple
 
-from sqlalchemy import select, func, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.llm_model.models import LlmModel
@@ -40,48 +39,50 @@ class LlmModelRepository:
         await self.db.refresh(model)
         return model
 
-    async def get_by_id(self, model_id: str, user_id: int) -> Optional[LlmModel]:
+    async def get_by_id(self, model_id: str, user_id: int) -> LlmModel | None:
         """Get LLM model by ID"""
         stmt = select(LlmModel).where(
-            LlmModel.id == model_id,
-            LlmModel.user_id == user_id
+            LlmModel.id == model_id, LlmModel.user_id == user_id
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, user_id: int, name: str) -> Optional[LlmModel]:
+    async def get_by_name(self, user_id: int, name: str) -> LlmModel | None:
         """Get LLM model by name for a user"""
         stmt = select(LlmModel).where(
-            LlmModel.user_id == user_id,
-            LlmModel.name == name
+            LlmModel.user_id == user_id, LlmModel.name == name
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_by_user(
         self, user_id: int, page: int = 1, page_size: int = 20
-    ) -> Tuple[List[LlmModel], int]:
+    ) -> tuple[list[LlmModel], int]:
         """List LLM models with pagination"""
         # Count total
-        count_stmt = select(func.count()).select_from(LlmModel).where(
-            LlmModel.user_id == user_id
+        count_stmt = (
+            select(func.count())
+            .select_from(LlmModel)
+            .where(LlmModel.user_id == user_id)
         )
         total_result = await self.db.execute(count_stmt)
         total = total_result.scalar_one()
 
         # Get paginated results
         offset = (page - 1) * page_size
-        stmt = select(LlmModel).where(
-            LlmModel.user_id == user_id
-        ).order_by(LlmModel.created_at.desc()).offset(offset).limit(page_size)
+        stmt = (
+            select(LlmModel)
+            .where(LlmModel.user_id == user_id)
+            .order_by(LlmModel.created_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
         result = await self.db.execute(stmt)
         items = list(result.scalars().all())
 
         return items, total
 
-    async def update(
-        self, model: LlmModel, data: LlmModelUpdate
-    ) -> LlmModel:
+    async def update(self, model: LlmModel, data: LlmModelUpdate) -> LlmModel:
         """Update an LLM model"""
         update_data = data.model_dump(exclude_unset=True, exclude_none=True)
 
@@ -97,12 +98,12 @@ class LlmModelRepository:
         await self.db.delete(model)
         await self.db.flush()
 
-    async def get_default(self, user_id: int) -> Optional[LlmModel]:
+    async def get_default(self, user_id: int) -> LlmModel | None:
         """Get the default LLM model for a user"""
         stmt = select(LlmModel).where(
             LlmModel.user_id == user_id,
             LlmModel.is_default == True,
-            LlmModel.is_enabled == True
+            LlmModel.is_enabled == True,
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()

@@ -6,7 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import CurrentUser, DBAsyncSession
+from app.dependencies import CurrentUser
+from app.dependencies.infras import DBAsyncSession
 from app.modules.embedding_model.repository import EmbeddingModelRepository
 from app.modules.embedding_model.schema import (
     EmbeddingModelCreate,

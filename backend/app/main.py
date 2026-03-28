@@ -3,6 +3,8 @@ from collections.abc import Callable
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.routers import register_business_routers, register_model_routers
+from app.common.exceptions import register_exception_handlers
 from app.common.logger import logger, setup_logger
 from app.core.settings import Settings, get_settings
 from app.utils.aiohttp_session import HttpSessionShared
@@ -26,8 +28,6 @@ async def lifespan(app: FastAPI):
 def create_app(
     lifespan: Callable = lifespan, settings: Settings = get_settings()
 ) -> FastAPI:
-    from app.api.v1.routers import register_business_routers
-    from app.common.exceptions import register_exception_handlers
 
     app = FastAPI(
         title="AI Studio",
@@ -37,6 +37,7 @@ def create_app(
     )
     # 1.导入路由
     register_business_routers(app)
+    register_model_routers(app)
     # 2.添加中间件
     app.add_middleware(
         CORSMiddleware,

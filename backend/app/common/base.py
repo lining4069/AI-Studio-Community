@@ -69,13 +69,13 @@ class PageParams(BaseModel):
     """分页参数模型"""
 
     page: int
-    limit: int
+    page_size: int
 
     @property
     def offset(self) -> int:
         """计算偏移量"""
-        return (self.page - 1) * self.limit
+        return (self.page - 1) * self.page_size
 
     def calc_has_more(self, total: int) -> bool:
         """计算是否有下一页"""
-        return self.page * self.limit < total
+        return self.page * self.page_size < total

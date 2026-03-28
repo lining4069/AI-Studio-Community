@@ -4,7 +4,6 @@ from fastapi import Depends
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.storage import AvatarFileStorage, KnowledgeFileStorage
 from app.core.settings import Settings, get_settings
 
 from .cache import get_cache

@@ -4,8 +4,10 @@ Base interfaces for Model Providers.
 These abstract base classes define the contract that all model providers
 must implement, enabling the factory pattern to create providers uniformly.
 """
+
 from abc import ABC, abstractmethod
-from typing import List, AsyncGenerator, Any, Dict
+from collections.abc import AsyncGenerator
+from typing import Any
 
 
 class LLMProvider(ABC):
@@ -24,8 +26,8 @@ class LLMProvider(ABC):
     @abstractmethod
     async def astream(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
@@ -43,8 +45,8 @@ class LLMProvider(ABC):
     @abstractmethod
     async def achat(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         **kwargs,
     ) -> str:
         """
@@ -80,7 +82,7 @@ class EmbeddingProvider(ABC):
         pass
 
     @abstractmethod
-    async def aembed(self, texts: List[str]) -> List[List[float]]:
+    async def aembed(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings for a batch of texts.
 
@@ -93,7 +95,7 @@ class EmbeddingProvider(ABC):
         pass
 
     @abstractmethod
-    async def aembed_query(self, query: str) -> List[float]:
+    async def aembed_query(self, query: str) -> list[float]:
         """
         Generate embedding for a single query.
 
@@ -123,9 +125,9 @@ class RerankerProvider(ABC):
     async def arerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         top_n: int | None = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Rerank documents by relevance to query.
 

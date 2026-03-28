@@ -2,17 +2,17 @@
 Encryption utilities for API keys and sensitive data.
 Reference: PAI-RAG project encryption approach
 """
+
 import base64
 import os
-from typing import Optional
 
 from loguru import logger
 
 # Encryption key from environment, should be 32 bytes base64 encoded for Fernet
-_ENCRYPTION_KEY: Optional[bytes] = None
+_ENCRYPTION_KEY: bytes | None = None
 
 
-def _get_encryption_key() -> Optional[bytes]:
+def _get_encryption_key() -> bytes | None:
     """Get or initialize the encryption key"""
     global _ENCRYPTION_KEY
     if _ENCRYPTION_KEY is None:
@@ -60,6 +60,7 @@ def encrypt_api_key(plain_text: str) -> str:
 
     try:
         from cryptography.fernet import Fernet
+
         fernet = Fernet(key)
         encrypted = fernet.encrypt(plain_text.encode())
         return base64.b64encode(encrypted).decode()
@@ -96,6 +97,7 @@ def decrypt_api_key(encrypted_text: str) -> str:
 
     try:
         from cryptography.fernet import Fernet
+
         fernet = Fernet(key)
         encrypted_bytes = base64.b64decode(encrypted_text.encode())
         decrypted = fernet.decrypt(encrypted_bytes)

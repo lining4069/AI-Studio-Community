@@ -4,15 +4,15 @@ DashScope Provider Implementation.
 Implements providers for DashScope (Alibaba Cloud) LLM, Embedding, and Reranker services.
 Reference: PAI-RAG backend/rag/rerank/dashscope_reranker.py
 """
-from typing import List, Dict, Any, AsyncGenerator, Optional
 
-from langchain_openai import ChatOpenAI
-from langchain_openai import OpenAIEmbeddings
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from app.services.providers.base import LLMProvider, EmbeddingProvider, RerankerProvider
-from app.utils.aiohttp_session import HttpSessionShared
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from loguru import logger
 
+from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
+from app.utils.aiohttp_session import HttpSessionShared
 
 # ============================================================================
 # DashScope LLM Provider
@@ -31,7 +31,7 @@ class DashScopeLLMProvider(LLMProvider):
         api_key: str,
         model: str = "qwen-max",
         temperature: float = 0.1,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
     ):
         self.api_key = api_key
         self.model = model
@@ -53,15 +53,15 @@ class DashScopeLLMProvider(LLMProvider):
 
     async def astream(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """Stream chat completions from DashScope"""
         # LangChain's astream is async, we need to convert sync to async generator
         # The ChatOpenAI from langchain_openai supports async streaming
         try:
-            from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
             # Convert messages dict to LangChain format
             langchain_messages = []
@@ -89,13 +89,13 @@ class DashScopeLLMProvider(LLMProvider):
 
     async def achat(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         **kwargs,
     ) -> str:
         """Non-streaming chat completion from DashScope"""
         try:
-            from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
             langchain_messages = []
             for msg in messages:
@@ -137,7 +137,7 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
         self,
         api_key: str,
         model: str = "text-embedding-v3",
-        dimension: Optional[int] = None,
+        dimension: int | None = None,
         batch_size: int = 10,
     ):
         self.api_key = api_key
@@ -160,7 +160,7 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
     def dimension(self) -> int:
         return self._dimension
 
-    async def aembed(self, texts: List[str]) -> List[List[float]]:
+    async def aembed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts"""
         try:
             embeddings = await self._client.aembed_documents(texts)
@@ -170,7 +170,7 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
             # Return zero vectors on error
             return [[0.0] * self._dimension for _ in texts]
 
-    async def aembed_query(self, query: str) -> List[float]:
+    async def aembed_query(self, query: str) -> list[float]:
         """Generate embedding for a single query"""
         try:
             embedding = await self._client.aembed_query(query)
@@ -198,11 +198,14 @@ class DashScopeRerankerProvider(RerankerProvider):
         api_key: str,
         model: str = "qwen3-rerank",
         base_url: str = "",
-        top_n: Optional[int] = None,
+        top_n: int | None = None,
     ):
         self.api_key = api_key
         self.model = model
-        self.base_url = base_url or "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+        self.base_url = (
+            base_url
+            or "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+        )
         self.top_n = top_n
 
         # Ensure proper endpoint format
@@ -219,9 +222,9 @@ class DashScopeRerankerProvider(RerankerProvider):
     async def arerank(
         self,
         query: str,
-        documents: List[str],
-        top_n: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        documents: list[str],
+        top_n: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Rerank documents using DashScope API"""
         import aiohttp
 
@@ -258,7 +261,9 @@ class DashScopeRerankerProvider(RerankerProvider):
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.error(f"DashScope rerank API error: {response.status} - {error_text}")
+                    logger.error(
+                        f"DashScope rerank API error: {response.status} - {error_text}"
+                    )
                     return self._fallback_rerank(query, documents, n)
 
                 result = await response.json()
@@ -269,7 +274,9 @@ class DashScopeRerankerProvider(RerankerProvider):
                 elif "results" in result:
                     raw_results = result["results"]
                 else:
-                    logger.error(f"Unexpected DashScope rerank response format: {result}")
+                    logger.error(
+                        f"Unexpected DashScope rerank response format: {result}"
+                    )
                     return self._fallback_rerank(query, documents, n)
 
                 # Transform to standard format
@@ -282,13 +289,17 @@ class DashScopeRerankerProvider(RerankerProvider):
                     if "document" in item and isinstance(item["document"], dict):
                         doc_text = item["document"].get("text", "")
                     else:
-                        doc_text = documents[index] if 0 <= index < len(documents) else ""
+                        doc_text = (
+                            documents[index] if 0 <= index < len(documents) else ""
+                        )
 
-                    rerank_results.append({
-                        "index": index,
-                        "score": score,
-                        "document": doc_text,
-                    })
+                    rerank_results.append(
+                        {
+                            "index": index,
+                            "score": score,
+                            "document": doc_text,
+                        }
+                    )
 
                 # Sort by score descending
                 rerank_results.sort(key=lambda x: x["score"], reverse=True)
@@ -301,9 +312,9 @@ class DashScopeRerankerProvider(RerankerProvider):
     def _fallback_rerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         top_n: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Simple fallback reranking based on keyword overlap"""
         query_words = set(query.lower().split())
         results = []
@@ -315,11 +326,13 @@ class DashScopeRerankerProvider(RerankerProvider):
                 score = len(query_words & doc_words) / len(query_words)
             else:
                 score = 0.0
-            results.append({
-                "index": i,
-                "score": score,
-                "document": doc,
-            })
+            results.append(
+                {
+                    "index": i,
+                    "score": score,
+                    "document": doc,
+                }
+            )
 
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_n]

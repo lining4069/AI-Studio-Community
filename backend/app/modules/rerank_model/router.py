@@ -1,19 +1,21 @@
 """
 Rerank Model API router.
 """
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import DBAsyncSession, CurrentUser
+from app.dependencies import CurrentUser
+from app.dependencies.infras import DBAsyncSession
 from app.modules.rerank_model.repository import RerankModelRepository
-from app.modules.rerank_model.service import RerankModelService
 from app.modules.rerank_model.schema import (
     RerankModelCreate,
-    RerankModelUpdate,
-    RerankModelResponse,
     RerankModelListResponse,
+    RerankModelResponse,
+    RerankModelUpdate,
 )
+from app.modules.rerank_model.service import RerankModelService
 
 router = APIRouter()
 
@@ -69,7 +71,10 @@ async def get_default_rerank_model(
     model = await service.get_default_model(current_user.id)
     if not model:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="No default Rerank model configured")
+
+        raise HTTPException(
+            status_code=404, detail="No default Rerank model configured"
+        )
     return model
 
 

@@ -1,7 +1,6 @@
 """
 Rerank Model service for business logic.
 """
-from typing import List, Optional, Tuple
 
 from app.common.exceptions import NotFoundException, ValidationException
 from app.modules.rerank_model.models import RerankModel
@@ -16,14 +15,14 @@ class RerankModelService:
     def __init__(self, repo: RerankModelRepository):
         self.repo = repo
 
-    async def create_model(
-        self, user_id: int, data: RerankModelCreate
-    ) -> RerankModel:
+    async def create_model(self, user_id: int, data: RerankModelCreate) -> RerankModel:
         """Create a new Rerank model"""
         # Check if name already exists for this user
         existing = await self.repo.get_by_name(user_id, data.name)
         if existing:
-            raise ValidationException(f"Rerank model with name '{data.name}' already exists")
+            raise ValidationException(
+                f"Rerank model with name '{data.name}' already exists"
+            )
 
         # If setting as default, clear other defaults first
         if data.is_default:
@@ -47,7 +46,7 @@ class RerankModelService:
 
     async def list_models(
         self, user_id: int, page: int = 1, page_size: int = 20
-    ) -> Tuple[List[RerankModel], int]:
+    ) -> tuple[list[RerankModel], int]:
         """List Rerank models with pagination"""
         return await self.repo.list_by_user(user_id, page, page_size)
 
@@ -73,6 +72,6 @@ class RerankModelService:
         model = await self.get_model(model_id, user_id)
         await self.repo.delete(model)
 
-    async def get_default_model(self, user_id: int) -> Optional[RerankModel]:
+    async def get_default_model(self, user_id: int) -> RerankModel | None:
         """Get the default Rerank model"""
         return await self.repo.get_default(user_id)

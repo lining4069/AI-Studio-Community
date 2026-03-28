@@ -7,27 +7,25 @@ model configuration and caches them for reuse.
 
 Reference: PAI-RAG backend/service/factory/model_factory.py
 """
-from typing import Optional
 
 from loguru import logger
 
-from app.modules.llm_model.models import LlmModel
 from app.modules.embedding_model.models import EmbeddingModel, EmbeddingType
+from app.modules.llm_model.models import LlmModel
 from app.modules.rerank_model.models import RerankModel, RerankType
-from app.services.providers.base import LLMProvider, EmbeddingProvider, RerankerProvider
+from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
 from app.services.providers.dashscope import (
     DashScopeLLMProvider,
-    DashScopeEmbeddingProvider,
     DashScopeRerankerProvider,
 )
-from app.services.providers.openai_compatible import (
-    OpenAICompatibleLLMProvider,
-    OpenAICompatibleEmbeddingProvider,
-    CohereRerankerProvider,
-)
 from app.services.providers.huggingface import HuggingFaceEmbeddingProvider
-from app.utils.lru_cache import LruCache
+from app.services.providers.openai_compatible import (
+    CohereRerankerProvider,
+    OpenAICompatibleEmbeddingProvider,
+    OpenAICompatibleLLMProvider,
+)
 from app.utils.encrypt_utils import decrypt_api_key
+from app.utils.lru_cache import LruCache
 
 # ============================================================================
 # LRU Caches for Model Instances
@@ -47,8 +45,7 @@ def _llm_cache_key(model: LlmModel) -> str:
     """Generate cache key for LLM model"""
     decrypted_key = decrypt_api_key(model.encrypted_api_key or "")
     return (
-        f"llm_{model.provider}_{model.model_name}_"
-        f"{decrypted_key}_{model.temperature}"
+        f"llm_{model.provider}_{model.model_name}_{decrypted_key}_{model.temperature}"
     )
 
 

@@ -4,15 +4,15 @@ OpenAI-Compatible Provider Implementation.
 Implements providers for any OpenAI-compatible API endpoint.
 Supports standard OpenAI-compatible LLM, Embedding, and Cohere-style Reranker endpoints.
 """
-from typing import List, Dict, Any, AsyncGenerator, Optional
 
-from langchain_openai import ChatOpenAI
-from langchain_openai import OpenAIEmbeddings
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from app.services.providers.base import LLMProvider, EmbeddingProvider, RerankerProvider
-from app.utils.aiohttp_session import HttpSessionShared
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from loguru import logger
 
+from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
+from app.utils.aiohttp_session import HttpSessionShared
 
 # ============================================================================
 # OpenAI-Compatible LLM Provider
@@ -32,7 +32,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         model: str,
         base_url: str = "https://api.openai.com/v1",
         temperature: float = 0.1,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
     ):
         self.api_key = api_key
         self.model = model
@@ -43,7 +43,9 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         self._client = ChatOpenAI(
             model=model,
             api_key=api_key,
-            base_url=base_url.rstrip("/") + "/v1" if not base_url.endswith("/v1") else base_url,
+            base_url=base_url.rstrip("/") + "/v1"
+            if not base_url.endswith("/v1")
+            else base_url,
             temperature=temperature,
             max_tokens=max_tokens,
             streaming=True,
@@ -55,13 +57,13 @@ class OpenAICompatibleLLMProvider(LLMProvider):
 
     async def astream(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """Stream chat completions"""
         try:
-            from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
             langchain_messages = []
             for msg in messages:
@@ -87,13 +89,13 @@ class OpenAICompatibleLLMProvider(LLMProvider):
 
     async def achat(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         **kwargs,
     ) -> str:
         """Non-streaming chat completion"""
         try:
-            from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
             langchain_messages = []
             for msg in messages:
@@ -136,7 +138,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         api_key: str,
         endpoint: str = "",
         model: str = "text-embedding-3-small",
-        dimension: Optional[int] = None,
+        dimension: int | None = None,
         batch_size: int = 10,
     ):
         self.api_key = api_key
@@ -145,7 +147,11 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         self._dimension = dimension or self.DEFAULT_DIMENSION
         self.batch_size = batch_size
 
-        base_url = endpoint.rstrip("/") + "/v1" if endpoint and not endpoint.endswith("/v1") else None
+        base_url = (
+            endpoint.rstrip("/") + "/v1"
+            if endpoint and not endpoint.endswith("/v1")
+            else None
+        )
 
         self._client = OpenAIEmbeddings(
             model=model,
@@ -162,7 +168,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     def dimension(self) -> int:
         return self._dimension
 
-    async def aembed(self, texts: List[str]) -> List[List[float]]:
+    async def aembed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts"""
         try:
             embeddings = await self._client.aembed_documents(texts)
@@ -171,7 +177,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
             logger.error(f"OpenAI-compatible embedding error: {e}")
             return [[0.0] * self._dimension for _ in texts]
 
-    async def aembed_query(self, query: str) -> List[float]:
+    async def aembed_query(self, query: str) -> list[float]:
         """Generate embedding for a single query"""
         try:
             embedding = await self._client.aembed_query(query)
@@ -199,7 +205,7 @@ class CohereRerankerProvider(RerankerProvider):
         api_key: str,
         base_url: str = "",
         model: str = "cohere-rerank",
-        top_n: Optional[int] = None,
+        top_n: int | None = None,
     ):
         self.api_key = api_key
         self.base_url = base_url or "https://api.cohere.ai"
@@ -220,9 +226,9 @@ class CohereRerankerProvider(RerankerProvider):
     async def arerank(
         self,
         query: str,
-        documents: List[str],
-        top_n: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        documents: list[str],
+        top_n: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Rerank documents using compatible rerank API"""
         import aiohttp
 
@@ -280,13 +286,17 @@ class CohereRerankerProvider(RerankerProvider):
                     elif "text" in item:
                         doc_text = item["text"]
                     else:
-                        doc_text = documents[index] if 0 <= index < len(documents) else ""
+                        doc_text = (
+                            documents[index] if 0 <= index < len(documents) else ""
+                        )
 
-                    rerank_results.append({
-                        "index": index,
-                        "score": score,
-                        "document": doc_text,
-                    })
+                    rerank_results.append(
+                        {
+                            "index": index,
+                            "score": score,
+                            "document": doc_text,
+                        }
+                    )
 
                 # Sort by score descending
                 rerank_results.sort(key=lambda x: x["score"], reverse=True)
@@ -299,9 +309,9 @@ class CohereRerankerProvider(RerankerProvider):
     def _fallback_rerank(
         self,
         query: str,
-        documents: List[str],
+        documents: list[str],
         top_n: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Simple fallback reranking based on keyword overlap"""
         query_words = set(query.lower().split())
         results = []
@@ -312,11 +322,13 @@ class CohereRerankerProvider(RerankerProvider):
                 score = len(query_words & doc_words) / len(query_words)
             else:
                 score = 0.0
-            results.append({
-                "index": i,
-                "score": score,
-                "document": doc,
-            })
+            results.append(
+                {
+                    "index": i,
+                    "score": score,
+                    "document": doc,
+                }
+            )
 
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_n]

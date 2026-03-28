@@ -1,11 +1,11 @@
 """
 LLM Model database models.
 """
+
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import String, Text, Integer, Boolean, DateTime
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.base import Base
@@ -13,6 +13,7 @@ from app.common.base import Base
 
 class LlmModel(Base):
     """LLM Model Entity"""
+
     __tablename__ = "llm_models"
 
     id: Mapped[str] = mapped_column(
@@ -21,14 +22,16 @@ class LlmModel(Base):
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="openai_compatible")
+    provider: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="openai_compatible"
+    )
     model_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    base_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    encrypted_api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     temperature: Mapped[float] = mapped_column(default=0.1)
-    max_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    max_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     context_window: Mapped[int] = mapped_column(Integer, default=8000)
 
     support_vision: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -36,7 +39,7 @@ class LlmModel(Base):
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False

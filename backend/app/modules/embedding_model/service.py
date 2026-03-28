@@ -1,12 +1,14 @@
 """
 Embedding Model service for business logic.
 """
-from typing import List, Optional, Tuple
 
 from app.common.exceptions import NotFoundException, ValidationException
 from app.modules.embedding_model.models import EmbeddingModel
 from app.modules.embedding_model.repository import EmbeddingModelRepository
-from app.modules.embedding_model.schema import EmbeddingModelCreate, EmbeddingModelUpdate
+from app.modules.embedding_model.schema import (
+    EmbeddingModelCreate,
+    EmbeddingModelUpdate,
+)
 from app.utils.encrypt_utils import encrypt_api_key
 
 
@@ -23,7 +25,9 @@ class EmbeddingModelService:
         # Check if name already exists for this user
         existing = await self.repo.get_by_name(user_id, data.name)
         if existing:
-            raise ValidationException(f"Embedding model with name '{data.name}' already exists")
+            raise ValidationException(
+                f"Embedding model with name '{data.name}' already exists"
+            )
 
         # If setting as default, clear other defaults first
         if data.is_default:
@@ -47,7 +51,7 @@ class EmbeddingModelService:
 
     async def list_models(
         self, user_id: int, page: int = 1, page_size: int = 20
-    ) -> Tuple[List[EmbeddingModel], int]:
+    ) -> tuple[list[EmbeddingModel], int]:
         """List Embedding models with pagination"""
         return await self.repo.list_by_user(user_id, page, page_size)
 
@@ -73,6 +77,6 @@ class EmbeddingModelService:
         model = await self.get_model(model_id, user_id)
         await self.repo.delete(model)
 
-    async def get_default_model(self, user_id: int) -> Optional[EmbeddingModel]:
+    async def get_default_model(self, user_id: int) -> EmbeddingModel | None:
         """Get the default Embedding model"""
         return await self.repo.get_default(user_id)
