@@ -8,8 +8,8 @@ Supports standard OpenAI-compatible LLM, Embedding, and Cohere-style Reranker en
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from loguru import logger
+from openai import AsyncOpenAI
 
 from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
 from app.utils.aiohttp_session import HttpSessionShared
@@ -21,7 +21,7 @@ from app.utils.aiohttp_session import HttpSessionShared
 
 class OpenAICompatibleLLMProvider(LLMProvider):
     """
-    OpenAI-compatible LLM Provider using LangChain ChatOpenAI.
+    OpenAI-compatible LLM Provider using official OpenAI AsyncOpenAI.
 
     Works with any OpenAI-compatible endpoint (vLLM, LocalAI, etc.)
     """
@@ -40,15 +40,16 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         self.temperature = temperature
         self.max_tokens = max_tokens
 
-        self._client = ChatOpenAI(
-            model=model,
+        # Normalize base_url to ensure proper endpoint
+        normalized_base_url = base_url.rstrip("/")
+        if not normalized_base_url.endswith("/v1"):
+            normalized_base_url += "/v1"
+
+        self._client = AsyncOpenAI(
             api_key=api_key,
-            base_url=base_url.rstrip("/") + "/v1"
-            if not base_url.endswith("/v1")
-            else base_url,
+            base_url=normalized_base_url,
             temperature=temperature,
             max_tokens=max_tokens,
-            streaming=True,
         )
 
     @property
@@ -63,25 +64,22 @@ class OpenAICompatibleLLMProvider(LLMProvider):
     ) -> AsyncGenerator[str, None]:
         """Stream chat completions"""
         try:
-            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+            request_kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+                "temperature": self.temperature,
+            }
+            if self.max_tokens:
+                request_kwargs["max_tokens"] = self.max_tokens
+            if tools:
+                request_kwargs["tools"] = tools
 
-            langchain_messages = []
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
+            stream = await self._client.chat.completions.create(**request_kwargs)
 
-                if role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
-                elif role == "user":
-                    langchain_messages.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    langchain_messages.append(AIMessage(content=content))
-                else:
-                    langchain_messages.append(HumanMessage(content=content))
-
-            async for chunk in self._client.astream(langchain_messages):
-                if chunk.content:
-                    yield chunk.content
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
         except Exception as e:
             logger.error(f"OpenAI-compatible LLM streaming error: {e}")
@@ -95,24 +93,22 @@ class OpenAICompatibleLLMProvider(LLMProvider):
     ) -> str:
         """Non-streaming chat completion"""
         try:
-            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+            request_kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+                "temperature": self.temperature,
+            }
+            if self.max_tokens:
+                request_kwargs["max_tokens"] = self.max_tokens
+            if tools:
+                request_kwargs["tools"] = tools
 
-            langchain_messages = []
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
+            response = await self._client.chat.completions.create(**request_kwargs)
 
-                if role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
-                elif role == "user":
-                    langchain_messages.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    langchain_messages.append(AIMessage(content=content))
-                else:
-                    langchain_messages.append(HumanMessage(content=content))
-
-            response = await self._client.ainvoke(langchain_messages)
-            return response.content
+            if response.choices and response.choices[0].message.content:
+                return response.choices[0].message.content
+            return ""
 
         except Exception as e:
             logger.error(f"OpenAI-compatible LLM error: {e}")
@@ -126,7 +122,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
 
 class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     """
-    OpenAI-compatible Embedding Provider using LangChain OpenAIEmbeddings.
+    OpenAI-compatible Embedding Provider using official OpenAI AsyncOpenAI.
 
     Works with any OpenAI-compatible embedding endpoint.
     """
@@ -147,17 +143,17 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         self._dimension = dimension or self.DEFAULT_DIMENSION
         self.batch_size = batch_size
 
-        base_url = (
-            endpoint.rstrip("/") + "/v1"
-            if endpoint and not endpoint.endswith("/v1")
-            else None
-        )
+        # Normalize base_url for embeddings
+        if endpoint:
+            base_url = endpoint.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url += "/v1"
+        else:
+            base_url = "https://api.openai.com/v1"
 
-        self._client = OpenAIEmbeddings(
-            model=model,
+        self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
-            dimensions=self._dimension,
         )
 
     @property
@@ -171,8 +167,12 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts"""
         try:
-            embeddings = await self._client.aembed_documents(texts)
-            return embeddings
+            response = await self._client.embeddings.create(
+                model=self.model,
+                input=texts,
+                dimensions=self._dimension,
+            )
+            return [item.embedding for item in response.data]
         except Exception as e:
             logger.error(f"OpenAI-compatible embedding error: {e}")
             return [[0.0] * self._dimension for _ in texts]
@@ -180,8 +180,12 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     async def aembed_query(self, query: str) -> list[float]:
         """Generate embedding for a single query"""
         try:
-            embedding = await self._client.aembed_query(query)
-            return embedding
+            response = await self._client.embeddings.create(
+                model=self.model,
+                input=[query],
+                dimensions=self._dimension,
+            )
+            return response.data[0].embedding
         except Exception as e:
             logger.error(f"OpenAI-compatible embedding query error: {e}")
             return [0.0] * self._dimension

@@ -8,11 +8,13 @@ Reference: PAI-RAG backend/rag/rerank/dashscope_reranker.py
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from loguru import logger
+from openai import AsyncOpenAI
 
 from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
 from app.utils.aiohttp_session import HttpSessionShared
+
+DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 # ============================================================================
 # DashScope LLM Provider
@@ -21,7 +23,7 @@ from app.utils.aiohttp_session import HttpSessionShared
 
 class DashScopeLLMProvider(LLMProvider):
     """
-    DashScope LLM Provider using LangChain ChatOpenAI.
+    DashScope LLM Provider using official OpenAI AsyncOpenAI.
 
     Supports DashScope's Qwen models via OpenAI-compatible API.
     """
@@ -38,13 +40,11 @@ class DashScopeLLMProvider(LLMProvider):
         self.temperature = temperature
         self.max_tokens = max_tokens
 
-        self._client = ChatOpenAI(
-            model=model,
+        self._client = AsyncOpenAI(
             api_key=api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            base_url=DASHSCOPE_BASE_URL,
             temperature=temperature,
             max_tokens=max_tokens,
-            streaming=True,
         )
 
     @property
@@ -58,30 +58,23 @@ class DashScopeLLMProvider(LLMProvider):
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """Stream chat completions from DashScope"""
-        # LangChain's astream is async, we need to convert sync to async generator
-        # The ChatOpenAI from langchain_openai supports async streaming
         try:
-            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+            request_kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+                "temperature": self.temperature,
+            }
+            if self.max_tokens:
+                request_kwargs["max_tokens"] = self.max_tokens
+            if tools:
+                request_kwargs["tools"] = tools
 
-            # Convert messages dict to LangChain format
-            langchain_messages = []
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
+            stream = await self._client.chat.completions.create(**request_kwargs)
 
-                if role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
-                elif role == "user":
-                    langchain_messages.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    langchain_messages.append(AIMessage(content=content))
-                else:
-                    langchain_messages.append(HumanMessage(content=content))
-
-            # Use astream which is async
-            async for chunk in self._client.astream(langchain_messages):
-                if chunk.content:
-                    yield chunk.content
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
         except Exception as e:
             logger.error(f"DashScope LLM streaming error: {e}")
@@ -95,24 +88,22 @@ class DashScopeLLMProvider(LLMProvider):
     ) -> str:
         """Non-streaming chat completion from DashScope"""
         try:
-            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+            request_kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+                "temperature": self.temperature,
+            }
+            if self.max_tokens:
+                request_kwargs["max_tokens"] = self.max_tokens
+            if tools:
+                request_kwargs["tools"] = tools
 
-            langchain_messages = []
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
+            response = await self._client.chat.completions.create(**request_kwargs)
 
-                if role == "system":
-                    langchain_messages.append(SystemMessage(content=content))
-                elif role == "user":
-                    langchain_messages.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    langchain_messages.append(AIMessage(content=content))
-                else:
-                    langchain_messages.append(HumanMessage(content=content))
-
-            response = await self._client.ainvoke(langchain_messages)
-            return response.content
+            if response.choices and response.choices[0].message.content:
+                return response.choices[0].message.content
+            return ""
 
         except Exception as e:
             logger.error(f"DashScope LLM error: {e}")
@@ -126,7 +117,7 @@ class DashScopeLLMProvider(LLMProvider):
 
 class DashScopeEmbeddingProvider(EmbeddingProvider):
     """
-    DashScope Embedding Provider using LangChain OpenAIEmbeddings.
+    DashScope Embedding Provider using official OpenAI AsyncOpenAI.
 
     Supports DashScope's text-embedding-v3 model.
     """
@@ -145,11 +136,9 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
         self._dimension = dimension or self.DEFAULT_DIMENSION
         self.batch_size = batch_size
 
-        self._client = OpenAIEmbeddings(
-            model=model,
+        self._client = AsyncOpenAI(
             api_key=api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            dimensions=self._dimension,
+            base_url=DASHSCOPE_BASE_URL,
         )
 
     @property
@@ -163,8 +152,12 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts"""
         try:
-            embeddings = await self._client.aembed_documents(texts)
-            return embeddings
+            response = await self._client.embeddings.create(
+                model=self.model,
+                input=texts,
+                dimensions=self._dimension,
+            )
+            return [item.embedding for item in response.data]
         except Exception as e:
             logger.error(f"DashScope embedding error: {e}")
             # Return zero vectors on error
@@ -173,8 +166,12 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
     async def aembed_query(self, query: str) -> list[float]:
         """Generate embedding for a single query"""
         try:
-            embedding = await self._client.aembed_query(query)
-            return embedding
+            response = await self._client.embeddings.create(
+                model=self.model,
+                input=[query],
+                dimensions=self._dimension,
+            )
+            return response.data[0].embedding
         except Exception as e:
             logger.error(f"DashScope embedding query error: {e}")
             return [0.0] * self._dimension
