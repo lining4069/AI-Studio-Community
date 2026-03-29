@@ -1,6 +1,21 @@
 from fastapi import Query
+from pydantic import BaseModel
 
-from app.common.base import PageParams
+
+class PageParams(BaseModel):
+    """分页参数模型"""
+
+    page: int
+    page_size: int
+
+    @property
+    def offset(self) -> int:
+        """计算偏移量"""
+        return (self.page - 1) * self.page_size
+
+    def calc_has_more(self, total: int) -> bool:
+        """计算是否有下一页"""
+        return self.page * self.page_size < total
 
 
 # 分页参数依赖项

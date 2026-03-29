@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Generic, TypeVar
 
 from fastapi import status
@@ -12,5 +13,16 @@ class APIResponse(BaseModel, Generic[T]):
     code: int = status.HTTP_200_OK
     message: str = "Success Response"
     data: T | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PageData(BaseModel, Generic[T]):
+    """分页数据模型"""
+
+    items: Sequence[T]
+    total: int
+    page: int
+    page_size: int
 
     model_config = ConfigDict(from_attributes=True)

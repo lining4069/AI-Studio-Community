@@ -3,12 +3,11 @@ from typing import Annotated
 from fastapi import Depends
 from hf_xet import __all__
 
-from app.common.base import PageParams
 from app.common.storage import AvatarFileStorage, KnowledgeFileStorage
 from app.modules.users.models import User
 
 from .auth import get_current_user
-from .pagination import get_page_params
+from .pagination import PageParams, get_page_params
 from .storage import get_avatar_storage, get_kb_file_storage
 
 # 当前登录用户依赖项类型
