@@ -15,7 +15,6 @@ def register_business_routers(app: FastAPI):
     """注册业务路由"""
     app.include_router(auth_router, prefix="/v1/auth", tags=["认证"])
     app.include_router(user_router, prefix="/v1/user", tags=["用户"])
-    app.include_router(agent_router, prefix="/v1/agents", tags=["Agent"])
 
 
 # 注册模型相关API路由
@@ -29,4 +28,11 @@ def register_model_routers(app: FastAPI):
     app.include_router(
         rerank_model_router, prefix="/v1/rerank-models", tags=["Rerank模型"]
     )
+
+
+# 注册上层应用层
+def register_application_routers(app: FastAPI):
+    """注册上层应用相关路由"""
     app.include_router(kb_router, prefix="/v1/knowledge-bases", tags=["知识库"])
+
+    app.include_router(agent_router, prefix="/v1/agents", tags=["Agent"])

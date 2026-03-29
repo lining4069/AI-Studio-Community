@@ -3,7 +3,11 @@ from collections.abc import Callable
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.routers import register_business_routers, register_model_routers
+from app.api.v1.routers import (
+    register_application_routers,
+    register_business_routers,
+    register_model_routers,
+)
 from app.common.exceptions import register_exception_handlers
 from app.common.logger import logger, setup_logger
 from app.core.settings import Settings, get_settings
@@ -38,6 +42,7 @@ def create_app(
     # 1.导入路由
     register_business_routers(app)
     register_model_routers(app)
+    register_application_routers(app)
     # 2.添加中间件
     app.add_middleware(
         CORSMiddleware,

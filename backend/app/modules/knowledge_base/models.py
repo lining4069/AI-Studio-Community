@@ -121,7 +121,7 @@ class KbFile(Base):
     failed_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Metadata from file parsing
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    file_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
@@ -172,7 +172,7 @@ class KbChunk(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Metadata
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    chunk_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
