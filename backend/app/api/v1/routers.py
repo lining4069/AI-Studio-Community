@@ -1,8 +1,10 @@
 # 汇总api
 from fastapi import FastAPI
 
+from app.modules.agent.router import router as agent_router
 from app.modules.auth.router import router as auth_router
 from app.modules.embedding_model.router import router as embedding_model_router
+from app.modules.knowledge_base.router import router as kb_router
 from app.modules.llm_model.router import router as llm_model_router
 from app.modules.rerank_model.router import router as rerank_model_router
 from app.modules.users.router import router as user_router
@@ -13,6 +15,7 @@ def register_business_routers(app: FastAPI):
     """注册业务路由"""
     app.include_router(auth_router, prefix="/v1/auth", tags=["认证"])
     app.include_router(user_router, prefix="/v1/user", tags=["用户"])
+    app.include_router(agent_router, prefix="/v1/agents", tags=["Agent"])
 
 
 # 注册模型相关API路由
@@ -26,3 +29,4 @@ def register_model_routers(app: FastAPI):
     app.include_router(
         rerank_model_router, prefix="/v1/rerank-models", tags=["Rerank模型"]
     )
+    app.include_router(kb_router, prefix="/v1/knowledge-bases", tags=["知识库"])

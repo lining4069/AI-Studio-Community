@@ -34,7 +34,9 @@ def get_embedding_model_service(
     return EmbeddingModelService(repo)
 
 
-EmbeddingModelServiceDep = Annotated[EmbeddingModelService, Depends(get_embedding_model_service)]
+EmbeddingModelServiceDep = Annotated[
+    EmbeddingModelService, Depends(get_embedding_model_service)
+]
 
 
 @router.post("", response_model=APIResponse[EmbeddingModelResponse], status_code=201)

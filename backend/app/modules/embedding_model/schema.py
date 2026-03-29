@@ -34,6 +34,7 @@ class EmbeddingModelBase(BaseModel):
 
 class EmbeddingModelCreate(EmbeddingModelBase):
     """Schema for creating Embedding model"""
+
     pass
 
 

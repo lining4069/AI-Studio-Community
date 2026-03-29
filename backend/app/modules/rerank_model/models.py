@@ -4,15 +4,16 @@ Rerank Model database models.
 
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.base import Base
+from app.utils.datetime_utils import now_utc
 
 
-class RerankType(str, Enum):
+class RerankType(StrEnum):
     """Rerank type enum"""
 
     OPENAI_COMPATIBLE = "openai_compatible"  # Cohere/Jina 等兼容 /v1/rerank 端点
@@ -45,10 +46,10 @@ class RerankModel(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=now_utc, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
     )
 
     def __repr__(self):

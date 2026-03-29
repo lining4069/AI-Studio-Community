@@ -25,6 +25,7 @@ class RerankModelBase(BaseModel):
 
 class RerankModelCreate(RerankModelBase):
     """Schema for creating Rerank model"""
+
     pass
 
 

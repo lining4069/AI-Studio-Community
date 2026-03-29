@@ -9,6 +9,7 @@ from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.base import Base
+from app.utils.datetime_utils import now_utc
 
 
 class LlmModel(Base):
@@ -42,10 +43,10 @@ class LlmModel(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=now_utc, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
     )
 
     def __repr__(self):
