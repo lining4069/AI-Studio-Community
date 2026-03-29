@@ -4,7 +4,7 @@ LLM Model API router.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.dependencies import CurrentUser
 from app.dependencies.infras import DBAsyncSession
@@ -55,7 +55,7 @@ async def list_llm_models(
     """List all LLM models for the current user"""
     items, total = await service.list_models(current_user.id, page, page_size)
     return LlmModelListResponse(
-        items=items,
+        items=[LlmModelResponse.model_validate(item) for item in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -70,8 +70,6 @@ async def get_default_llm_model(
     """Get the default LLM model"""
     model = await service.get_default_model(current_user.id)
     if not model:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail="No default LLM model configured")
     return model
 

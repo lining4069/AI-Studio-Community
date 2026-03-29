@@ -4,7 +4,7 @@ Embedding Model API router.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.dependencies import CurrentUser
 from app.dependencies.infras import DBAsyncSession
@@ -55,7 +55,7 @@ async def list_embedding_models(
     """List all Embedding models for the current user"""
     items, total = await service.list_models(current_user.id, page, page_size)
     return EmbeddingModelListResponse(
-        items=items,
+        items=[EmbeddingModelResponse.model_validate(item) for item in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -70,8 +70,6 @@ async def get_default_embedding_model(
     """Get the default Embedding model"""
     model = await service.get_default_model(current_user.id)
     if not model:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=404, detail="No default Embedding model configured"
         )

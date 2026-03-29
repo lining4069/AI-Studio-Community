@@ -9,7 +9,7 @@ from app.modules.llm_model.schema import (
     LlmModelCreate,
     LlmModelUpdate,
 )
-from app.utils.encrypt_utils import decrypt_api_key, encrypt_api_key
+from app.utils.encrypt_utils import encrypt_api_key
 
 
 class LlmModelService:
@@ -80,7 +80,3 @@ class LlmModelService:
     async def get_default_model(self, user_id: int) -> LlmModel | None:
         """Get the default LLM model"""
         return await self.repo.get_default(user_id)
-
-    def decrypt_api_key(self, encrypted_key: str) -> str:
-        """Decrypt API key for runtime use"""
-        return decrypt_api_key(encrypted_key)

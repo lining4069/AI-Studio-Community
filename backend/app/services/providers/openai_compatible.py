@@ -208,16 +208,20 @@ class CohereRerankerProvider(RerankerProvider):
         top_n: int | None = None,
     ):
         self.api_key = api_key
-        self.base_url = base_url or "https://api.cohere.ai"
         self.model = model
         self.top_n = top_n
 
-        # Ensure proper endpoint format
-        if not self.base_url.endswith("/v1/rerank"):
-            if self.base_url.endswith("/v1"):
-                self.base_url = f"{self.base_url}/rerank"
+        # Set base URL with proper endpoint format
+        if not base_url:
+            self.base_url = "https://api.cohere.ai/v1/rerank"
+        else:
+            base_url = base_url.rstrip("/")
+            if base_url.endswith("/v1/rerank"):
+                self.base_url = base_url
+            elif base_url.endswith("/v1"):
+                self.base_url = f"{base_url}/rerank"
             else:
-                self.base_url = f"{self.base_url}/v1/rerank"
+                self.base_url = f"{base_url}/v1/rerank"
 
     @property
     def provider_name(self) -> str:

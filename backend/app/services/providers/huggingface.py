@@ -62,6 +62,8 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
         """Generate embeddings for a batch of texts"""
         try:
             self._ensure_model()
+            if self._model is None:
+                return [[0.0] * self._dimension for _ in texts]
             embeddings = self._model.encode(
                 texts,
                 batch_size=self.batch_size,
@@ -77,6 +79,8 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
         """Generate embedding for a single query"""
         try:
             self._ensure_model()
+            if self._model is None:
+                return [0.0] * self._dimension
             embedding = self._model.encode(
                 query,
                 batch_size=1,

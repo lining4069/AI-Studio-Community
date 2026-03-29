@@ -202,18 +202,19 @@ class DashScopeRerankerProvider(RerankerProvider):
     ):
         self.api_key = api_key
         self.model = model
-        self.base_url = (
-            base_url
-            or "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
-        )
         self.top_n = top_n
 
-        # Ensure proper endpoint format
-        if not self.base_url.endswith("/text-rerank/text-rerank"):
-            if self.base_url.endswith("/text-rerank"):
-                self.base_url = f"{self.base_url}/text-rerank"
+        # Set base URL with proper endpoint format
+        if not base_url:
+            self.base_url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+        else:
+            base_url = base_url.rstrip("/")
+            if base_url.endswith("/text-rerank/text-rerank"):
+                self.base_url = base_url
+            elif base_url.endswith("/text-rerank"):
+                self.base_url = f"{base_url}/text-rerank"
             else:
-                self.base_url = f"{self.base_url}/text-rerank/text-rerank"
+                self.base_url = f"{base_url}/text-rerank/text-rerank"
 
     @property
     def provider_name(self) -> str:

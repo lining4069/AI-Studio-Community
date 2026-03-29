@@ -86,7 +86,7 @@ def decrypt_api_key(encrypted_text: str) -> str:
         return encrypted_text
 
     # Check if it's a plain API key (starts with common prefixes)
-    plain_prefixes = ("sk-", "sk-prod-", "sk-dev-", " Bearer ")
+    plain_prefixes = ("sk-", "sk-prod-", "sk-dev-", "Bearer ")
     if any(encrypted_text.startswith(p) for p in plain_prefixes):
         return encrypted_text
 
