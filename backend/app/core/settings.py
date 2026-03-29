@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     REFRESH_TOKEN_EXPIRE_DAYS: int
     JWT_ALGORITHM: str
+    # 模型API密钥加密设置
+    MODEL_API_KEY_ENCRYPTION_KEY: str | None
     # 非配置文件中设置,全局静态值
     # Redis KEY 值系统约定
     REFRESH_TOKEN_PROMPT: str = "user:{}:device:{}"

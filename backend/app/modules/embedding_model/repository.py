@@ -18,7 +18,12 @@ class EmbeddingModelRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(self, user_id: int, data: EmbeddingModelCreate) -> EmbeddingModel:
+    async def create(
+        self,
+        user_id: int,
+        data: EmbeddingModelCreate,
+        encrypted_api_key: str | None = None,
+    ) -> EmbeddingModel:
         """Create a new Embedding model"""
         model = EmbeddingModel(
             user_id=user_id,
@@ -27,7 +32,7 @@ class EmbeddingModelRepository:
             model_name=data.model_name,
             endpoint=data.endpoint,
             api_key=None,
-            encrypted_api_key=data.encrypted_api_key,
+            encrypted_api_key=encrypted_api_key,
             local_model_path=data.local_model_path,
             dimension=data.dimension,
             batch_size=data.batch_size,
@@ -84,7 +89,10 @@ class EmbeddingModelRepository:
         return items, total
 
     async def update(
-        self, model: EmbeddingModel, data: EmbeddingModelUpdate
+        self,
+        model: EmbeddingModel,
+        data: EmbeddingModelUpdate,
+        encrypted_api_key: str | None = None,
     ) -> EmbeddingModel:
         """Update an Embedding model"""
         update_data = data.model_dump(exclude_unset=True, exclude_none=True)
@@ -95,6 +103,9 @@ class EmbeddingModelRepository:
 
         for field, value in update_data.items():
             setattr(model, field, value)
+
+        if encrypted_api_key is not None:
+            model.encrypted_api_key = encrypted_api_key
 
         await self.db.flush()
         await self.db.refresh(model)
@@ -109,8 +120,8 @@ class EmbeddingModelRepository:
         """Get the default Embedding model for a user"""
         stmt = select(EmbeddingModel).where(
             EmbeddingModel.user_id == user_id,
-            EmbeddingModel.is_default == True,
-            EmbeddingModel.is_enabled == True,
+            EmbeddingModel.is_default,
+            EmbeddingModel.is_enabled,
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
@@ -119,7 +130,7 @@ class EmbeddingModelRepository:
         """Clear all default flags for a user's models"""
         stmt = (
             update(EmbeddingModel)
-            .where(EmbeddingModel.user_id == user_id, EmbeddingModel.is_default == True)
+            .where(EmbeddingModel.user_id == user_id, EmbeddingModel.is_default)
             .values(is_default=False)
         )
         await self.db.execute(stmt)

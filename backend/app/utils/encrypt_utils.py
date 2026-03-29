@@ -1,110 +1,147 @@
 """
 Encryption utilities for API keys and sensitive data.
-Reference: PAI-RAG project encryption approach
+
+Design goals:
+- 支持 Fernet 标准加密
+- 支持任意字符串 key（自动派生）
+- 避免明文 fallback（生产安全）
+- 支持 key 校验
+- 兼容旧数据（可选）
 """
 
+from __future__ import annotations
+
 import base64
-import os
+import hashlib
+from functools import lru_cache
 
 from loguru import logger
 
-# Encryption key from environment, should be 32 bytes base64 encoded for Fernet
-_ENCRYPTION_KEY: bytes | None = None
+# =========================
+# Key Management
+# =========================
 
 
+@lru_cache
 def _get_encryption_key() -> bytes | None:
-    """Get or initialize the encryption key"""
-    global _ENCRYPTION_KEY
-    if _ENCRYPTION_KEY is None:
-        key_env = os.getenv("MODEL_API_KEY_ENCRYPTION_KEY", "")
-        if key_env:
-            try:
-                _ENCRYPTION_KEY = base64.b64decode(key_env)
-                if len(_ENCRYPTION_KEY) != 44:  # Fernet key is 44 bytes base64 encoded
-                    logger.warning(
-                        f"Encryption key should be 44 bytes, got {len(_ENCRYPTION_KEY)}. "
-                        "Generating a new key instead."
-                    )
-                    _ENCRYPTION_KEY = None
-            except Exception as e:
-                logger.warning(f"Failed to decode encryption key: {e}")
-                _ENCRYPTION_KEY = None
+    """
+    获取 Fernet 可用 key（32 bytes urlsafe base64）
 
-        if _ENCRYPTION_KEY is None:
-            # Generate a new key for this process (not persistent across restarts)
-            # In production, use a persistent key from KMS or environment
-            logger.warning(
-                "No encryption key configured. API keys will be stored as-is. "
-                "Set MODEL_API_KEY_ENCRYPTION_KEY environment variable for encryption."
-            )
-    return _ENCRYPTION_KEY
+    支持两种输入：
+    1. 标准 Fernet key（44字符）
+    2. 任意字符串（自动派生）
+    """
+    from app.core.settings import get_settings
+
+    key_env = get_settings().MODEL_API_KEY_ENCRYPTION_KEY
+
+    if not key_env:
+        logger.warning("No encryption key configured")
+        return None
+
+    key_env = key_env.strip()
+
+    # ✅ 情况1：标准 Fernet key（推荐）
+    if len(key_env) == 44:
+        try:
+            key_bytes = key_env.encode()
+            from cryptography.fernet import Fernet
+
+            Fernet(key_bytes)  # 校验合法性
+            return key_bytes
+        except Exception:
+            logger.warning("Invalid Fernet key format, fallback to KDF")
+
+    # ✅ 情况2：任意字符串 → 派生 Fernet key（更灵活）
+    try:
+        logger.info("Deriving Fernet key from provided secret")
+
+        # 使用 SHA256 派生 32 bytes，再转 base64
+        digest = hashlib.sha256(key_env.encode()).digest()
+        derived_key = base64.urlsafe_b64encode(digest)
+
+        return derived_key
+    except Exception as e:
+        logger.error(f"Failed to derive encryption key: {e}")
+        return None
+
+
+# =========================
+# Encryption
+# =========================
 
 
 def encrypt_api_key(plain_text: str) -> str:
     """
-    Encrypt an API key using Fernet symmetric encryption.
+    加密 API Key
 
-    Args:
-        plain_text: The API key to encrypt
-
-    Returns:
-        Base64 encoded encrypted string
+    返回：base64(encoded Fernet token)
     """
     if not plain_text:
         return plain_text
 
     key = _get_encryption_key()
     if key is None:
-        # No encryption configured, return as-is
-        return plain_text
+        # ⚠️ 不再 silently 明文存储
+        raise RuntimeError("Encryption key not configured")
 
     try:
         from cryptography.fernet import Fernet
 
         fernet = Fernet(key)
-        encrypted = fernet.encrypt(plain_text.encode())
-        return base64.b64encode(encrypted).decode()
-    except ImportError:
-        logger.warning("cryptography.fernet not available, storing API key as-is")
-        return plain_text
+        token = fernet.encrypt(plain_text.encode())
+
+        # 二次 base64（保证 DB 可安全存储）
+        return base64.urlsafe_b64encode(token).decode()
+
     except Exception as e:
-        logger.error(f"Failed to encrypt API key: {e}")
-        return plain_text
+        logger.error(f"Encryption failed: {e}")
+        raise
+
+
+# =========================
+# Decryption
+# =========================
 
 
 def decrypt_api_key(encrypted_text: str) -> str:
     """
-    Decrypt an API key.
-
-    Args:
-        encrypted_text: Base64 encoded encrypted string
-
-    Returns:
-        Decrypted plain text API key
+    解密 API Key
     """
     if not encrypted_text:
         return encrypted_text
 
-    # Check if it's a plain API key (starts with common prefixes)
-    plain_prefixes = ("sk-", "sk-prod-", "sk-dev-", "Bearer ")
-    if any(encrypted_text.startswith(p) for p in plain_prefixes):
+    # ✅ 兼容旧数据（明文）
+    if _looks_like_plain_text(encrypted_text):
         return encrypted_text
 
     key = _get_encryption_key()
     if key is None:
-        # No encryption configured, treat as plain text
-        return encrypted_text
+        raise RuntimeError("Encryption key not configured")
 
     try:
         from cryptography.fernet import Fernet
 
         fernet = Fernet(key)
-        encrypted_bytes = base64.b64decode(encrypted_text.encode())
-        decrypted = fernet.decrypt(encrypted_bytes)
+
+        token = base64.urlsafe_b64decode(encrypted_text.encode())
+        decrypted = fernet.decrypt(token)
+
         return decrypted.decode()
-    except ImportError:
-        logger.warning("cryptography.fernet not available, returning as-is")
-        return encrypted_text
+
     except Exception as e:
-        logger.error(f"Failed to decrypt API key: {e}")
-        return encrypted_text
+        logger.error(f"Decryption failed: {e}")
+        raise
+
+
+# =========================
+# Helpers
+# =========================
+
+
+def _looks_like_plain_text(text: str) -> bool:
+    """
+    判断是否是未加密的 API Key（用于兼容历史数据）
+    """
+    prefixes = ("sk-", "sk-prod-", "sk-dev-", "Bearer ")
+    return any(text.startswith(p) for p in prefixes)

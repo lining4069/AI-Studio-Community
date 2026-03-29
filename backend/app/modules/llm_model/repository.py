@@ -15,7 +15,12 @@ class LlmModelRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(self, user_id: int, data: LlmModelCreate) -> LlmModel:
+    async def create(
+        self,
+        user_id: int,
+        data: LlmModelCreate,
+        encrypted_api_key: str | None = None,
+    ) -> LlmModel:
         """Create a new LLM model"""
         model = LlmModel(
             user_id=user_id,
@@ -24,7 +29,7 @@ class LlmModelRepository:
             model_name=data.model_name,
             base_url=data.base_url,
             api_key=None,
-            encrypted_api_key=data.encrypted_api_key,
+            encrypted_api_key=encrypted_api_key,
             temperature=data.temperature,
             max_tokens=data.max_tokens,
             context_window=data.context_window,
@@ -82,12 +87,20 @@ class LlmModelRepository:
 
         return items, total
 
-    async def update(self, model: LlmModel, data: LlmModelUpdate) -> LlmModel:
+    async def update(
+        self,
+        model: LlmModel,
+        data: LlmModelUpdate,
+        encrypted_api_key: str | None = None,
+    ) -> LlmModel:
         """Update an LLM model"""
         update_data = data.model_dump(exclude_unset=True, exclude_none=True)
 
         for field, value in update_data.items():
             setattr(model, field, value)
+
+        if encrypted_api_key is not None:
+            model.encrypted_api_key = encrypted_api_key
 
         await self.db.flush()
         await self.db.refresh(model)
@@ -102,8 +115,8 @@ class LlmModelRepository:
         """Get the default LLM model for a user"""
         stmt = select(LlmModel).where(
             LlmModel.user_id == user_id,
-            LlmModel.is_default == True,
-            LlmModel.is_enabled == True,
+            LlmModel.is_default,
+            LlmModel.is_enabled,
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
@@ -112,7 +125,7 @@ class LlmModelRepository:
         """Clear all default flags for a user's models"""
         stmt = (
             update(LlmModel)
-            .where(LlmModel.user_id == user_id, LlmModel.is_default == True)
+            .where(LlmModel.user_id == user_id, LlmModel.is_default)
             .values(is_default=False)
         )
         await self.db.execute(stmt)

@@ -3,10 +3,12 @@ Embedding Model service for business logic.
 """
 
 from app.common.exceptions import NotFoundException, ValidationException
+from app.common.responses import PageData
 from app.modules.embedding_model.models import EmbeddingModel
 from app.modules.embedding_model.repository import EmbeddingModelRepository
 from app.modules.embedding_model.schema import (
     EmbeddingModelCreate,
+    EmbeddingModelResponse,
     EmbeddingModelUpdate,
 )
 from app.utils.encrypt_utils import encrypt_api_key
@@ -18,65 +20,78 @@ class EmbeddingModelService:
     def __init__(self, repo: EmbeddingModelRepository):
         self.repo = repo
 
+    def _to_response(self, model: EmbeddingModel) -> EmbeddingModelResponse:
+        """Domain model -> Response DTO"""
+        return EmbeddingModelResponse.model_validate(model)
+
+    async def _get_model_by_id(self, model_id: str, user_id: int) -> EmbeddingModel:
+        """Internal: get ORM model by ID"""
+        model = await self.repo.get_by_id(model_id, user_id)
+        if not model:
+            raise NotFoundException("Embedding Model", model_id)
+        return model
+
     async def create_model(
         self, user_id: int, data: EmbeddingModelCreate
-    ) -> EmbeddingModel:
+    ) -> EmbeddingModelResponse:
         """Create a new Embedding model"""
-        # Check if name already exists for this user
         existing = await self.repo.get_by_name(user_id, data.name)
         if existing:
             raise ValidationException(
                 f"Embedding model with name '{data.name}' already exists"
             )
 
-        # If setting as default, clear other defaults first
         if data.is_default:
             await self.repo.clear_default_flags(user_id)
 
-        # Encrypt API key if provided
         encrypted_key = None
         if data.api_key:
             encrypted_key = encrypt_api_key(data.api_key)
-            data.encrypted_api_key = encrypted_key
 
-        model = await self.repo.create(user_id, data)
-        return model
+        model = await self.repo.create(user_id, data, encrypted_api_key=encrypted_key)
+        return self._to_response(model)
 
-    async def get_model(self, model_id: str, user_id: int) -> EmbeddingModel:
+    async def get_model(self, model_id: str, user_id: int) -> EmbeddingModelResponse:
         """Get an Embedding model by ID"""
-        model = await self.repo.get_by_id(model_id, user_id)
-        if not model:
-            raise NotFoundException("Embedding Model", model_id)
-        return model
+        model = await self._get_model_by_id(model_id, user_id)
+        return self._to_response(model)
 
     async def list_models(
         self, user_id: int, page: int = 1, page_size: int = 20
-    ) -> tuple[list[EmbeddingModel], int]:
+    ) -> PageData[EmbeddingModelResponse]:
         """List Embedding models with pagination"""
-        return await self.repo.list_by_user(user_id, page, page_size)
+        items, total = await self.repo.list_by_user(user_id, page, page_size)
+        return PageData(
+            items=[self._to_response(item) for item in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
 
     async def update_model(
         self, model_id: str, user_id: int, data: EmbeddingModelUpdate
-    ) -> EmbeddingModel:
+    ) -> EmbeddingModelResponse:
         """Update an Embedding model"""
-        model = await self.get_model(model_id, user_id)
+        model = await self._get_model_by_id(model_id, user_id)
 
-        # If setting as default, clear other defaults first
         if data.is_default:
             await self.repo.clear_default_flags(user_id)
 
-        # If new API key provided, re-encrypt it
+        encrypted_key = None
         if data.api_key:
-            data.encrypted_api_key = encrypt_api_key(data.api_key)
+            encrypted_key = encrypt_api_key(data.api_key)
 
-        updated = await self.repo.update(model, data)
-        return updated
+        updated = await self.repo.update(model, data, encrypted_api_key=encrypted_key)
+        return self._to_response(updated)
 
     async def delete_model(self, model_id: str, user_id: int) -> None:
         """Delete an Embedding model"""
-        model = await self.get_model(model_id, user_id)
+        model = await self._get_model_by_id(model_id, user_id)
         await self.repo.delete(model)
 
-    async def get_default_model(self, user_id: int) -> EmbeddingModel | None:
+    async def get_default_model(self, user_id: int) -> EmbeddingModelResponse | None:
         """Get the default Embedding model"""
-        return await self.repo.get_default(user_id)
+        model = await self.repo.get_default(user_id)
+        if model is None:
+            return None
+        return self._to_response(model)

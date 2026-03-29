@@ -25,8 +25,7 @@ class RerankModelBase(BaseModel):
 
 class RerankModelCreate(RerankModelBase):
     """Schema for creating Rerank model"""
-
-    encrypted_api_key: str | None = None  # Internal field, set by service after encryption
+    pass
 
 
 class RerankModelUpdate(BaseModel):
@@ -36,8 +35,7 @@ class RerankModelUpdate(BaseModel):
     type: RerankType | None = None
     model_name: str | None = Field(None, max_length=255)
     base_url: str | None = Field(None, max_length=500)
-    api_key: str | None = None
-    encrypted_api_key: str | None = None  # Internal field, set by service after encryption
+    api_key: str | None = Field(None, exclude=True)
     top_n: int | None = Field(None, gt=0)
     is_enabled: bool | None = None
     is_default: bool | None = None

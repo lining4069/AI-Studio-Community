@@ -34,8 +34,7 @@ class LlmModelBase(BaseModel):
 
 class LlmModelCreate(LlmModelBase):
     """Schema for creating LLM model"""
-
-    encrypted_api_key: str | None = None  # Internal field, set by service after encryption
+    pass
 
 
 class LlmModelUpdate(BaseModel):
@@ -46,7 +45,6 @@ class LlmModelUpdate(BaseModel):
     model_name: str | None = Field(None, min_length=1, max_length=255)
     base_url: str | None = None
     api_key: str | None = Field(None, exclude=True, description="New API key (will be re-encrypted)")
-    encrypted_api_key: str | None = None  # Internal field, set by service after encryption
     temperature: float | None = Field(None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(None, gt=0)
     context_window: int | None = Field(None, gt=0)

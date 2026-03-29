@@ -34,8 +34,7 @@ class EmbeddingModelBase(BaseModel):
 
 class EmbeddingModelCreate(EmbeddingModelBase):
     """Schema for creating Embedding model"""
-
-    encrypted_api_key: str | None = None  # Internal field, set by service after encryption
+    pass
 
 
 class EmbeddingModelUpdate(BaseModel):
@@ -46,7 +45,6 @@ class EmbeddingModelUpdate(BaseModel):
     model_name: str | None = Field(None, max_length=255)
     endpoint: str | None = Field(None, max_length=500)
     api_key: str | None = Field(None, exclude=True)
-    encrypted_api_key: str | None = None  # Internal field, set by service after encryption
     local_model_path: str | None = Field(None, max_length=500)
     dimension: int | None = Field(None, gt=0)
     batch_size: int | None = Field(None, gt=0)

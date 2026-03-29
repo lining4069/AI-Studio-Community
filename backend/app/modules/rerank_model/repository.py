@@ -15,7 +15,12 @@ class RerankModelRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(self, user_id: int, data: RerankModelCreate) -> RerankModel:
+    async def create(
+        self,
+        user_id: int,
+        data: RerankModelCreate,
+        encrypted_api_key: str | None = None,
+    ) -> RerankModel:
         """Create a new Rerank model"""
         model = RerankModel(
             user_id=user_id,
@@ -24,7 +29,7 @@ class RerankModelRepository:
             model_name=data.model_name,
             base_url=data.base_url,
             api_key=None,
-            encrypted_api_key=data.encrypted_api_key,
+            encrypted_api_key=encrypted_api_key,
             top_n=data.top_n,
             is_enabled=data.is_enabled,
             is_default=data.is_default,
@@ -78,7 +83,12 @@ class RerankModelRepository:
 
         return items, total
 
-    async def update(self, model: RerankModel, data: RerankModelUpdate) -> RerankModel:
+    async def update(
+        self,
+        model: RerankModel,
+        data: RerankModelUpdate,
+        encrypted_api_key: str | None = None,
+    ) -> RerankModel:
         """Update a Rerank model"""
         update_data = data.model_dump(exclude_unset=True, exclude_none=True)
 
@@ -88,6 +98,9 @@ class RerankModelRepository:
 
         for field, value in update_data.items():
             setattr(model, field, value)
+
+        if encrypted_api_key is not None:
+            model.encrypted_api_key = encrypted_api_key
 
         await self.db.flush()
         await self.db.refresh(model)
@@ -102,8 +115,8 @@ class RerankModelRepository:
         """Get the default Rerank model for a user"""
         stmt = select(RerankModel).where(
             RerankModel.user_id == user_id,
-            RerankModel.is_default == True,
-            RerankModel.is_enabled == True,
+            RerankModel.is_default,
+            RerankModel.is_enabled,
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
@@ -112,7 +125,7 @@ class RerankModelRepository:
         """Clear all default flags for a user's models"""
         stmt = (
             update(RerankModel)
-            .where(RerankModel.user_id == user_id, RerankModel.is_default == True)
+            .where(RerankModel.user_id == user_id, RerankModel.is_default)
             .values(is_default=False)
         )
         await self.db.execute(stmt)

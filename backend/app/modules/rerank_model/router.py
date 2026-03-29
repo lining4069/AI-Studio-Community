@@ -6,12 +6,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.common.responses import APIResponse, PageData
 from app.dependencies import CurrentUser
 from app.dependencies.infras import DBAsyncSession
 from app.modules.rerank_model.repository import RerankModelRepository
 from app.modules.rerank_model.schema import (
     RerankModelCreate,
-    RerankModelListResponse,
     RerankModelResponse,
     RerankModelUpdate,
 )
@@ -37,7 +37,7 @@ def get_rerank_model_service(
 RerankModelServiceDep = Annotated[RerankModelService, Depends(get_rerank_model_service)]
 
 
-@router.post("", response_model=RerankModelResponse, status_code=201)
+@router.post("", response_model=APIResponse[RerankModelResponse], status_code=201)
 async def create_rerank_model(
     data: RerankModelCreate,
     current_user: CurrentUser,
@@ -45,10 +45,10 @@ async def create_rerank_model(
 ):
     """Create a new Rerank model configuration"""
     model = await service.create_model(current_user.id, data)
-    return model
+    return APIResponse(data=model, message="创建成功")
 
 
-@router.get("", response_model=RerankModelListResponse)
+@router.get("", response_model=APIResponse[PageData[RerankModelResponse]])
 async def list_rerank_models(
     current_user: CurrentUser,
     service: RerankModelServiceDep,
@@ -56,16 +56,10 @@ async def list_rerank_models(
     page_size: int = Query(default=20, ge=1, le=100),
 ):
     """List all Rerank models for the current user"""
-    items, total = await service.list_models(current_user.id, page, page_size)
-    return RerankModelListResponse(
-        items=[RerankModelResponse.model_validate(item) for item in items],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    return APIResponse(data=await service.list_models(current_user.id, page, page_size))
 
 
-@router.get("/default", response_model=RerankModelResponse)
+@router.get("/default", response_model=APIResponse[RerankModelResponse])
 async def get_default_rerank_model(
     current_user: CurrentUser,
     service: RerankModelServiceDep,
@@ -76,21 +70,20 @@ async def get_default_rerank_model(
         raise HTTPException(
             status_code=404, detail="No default Rerank model configured"
         )
-    return model
+    return APIResponse(data=model)
 
 
-@router.get("/{model_id}", response_model=RerankModelResponse)
+@router.get("/{model_id}", response_model=APIResponse[RerankModelResponse])
 async def get_rerank_model(
     model_id: str,
     current_user: CurrentUser,
     service: RerankModelServiceDep,
 ):
     """Get a specific Rerank model"""
-    model = await service.get_model(model_id, current_user.id)
-    return model
+    return APIResponse(data=await service.get_model(model_id, current_user.id))
 
 
-@router.put("/{model_id}", response_model=RerankModelResponse)
+@router.put("/{model_id}", response_model=APIResponse[RerankModelResponse])
 async def update_rerank_model(
     model_id: str,
     data: RerankModelUpdate,
@@ -98,8 +91,7 @@ async def update_rerank_model(
     service: RerankModelServiceDep,
 ):
     """Update a Rerank model"""
-    model = await service.update_model(model_id, current_user.id, data)
-    return model
+    return APIResponse(data=await service.update_model(model_id, current_user.id, data))
 
 
 @router.delete("/{model_id}", status_code=204)

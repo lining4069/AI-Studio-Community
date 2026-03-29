@@ -6,12 +6,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.common.responses import APIResponse, PageData
 from app.dependencies import CurrentUser
 from app.dependencies.infras import DBAsyncSession
 from app.modules.llm_model.repository import LlmModelRepository
 from app.modules.llm_model.schema import (
     LlmModelCreate,
-    LlmModelListResponse,
     LlmModelResponse,
     LlmModelUpdate,
 )
@@ -37,7 +37,7 @@ def get_llm_model_service(
 LLMModelServiceDep = Annotated[LlmModelService, Depends(get_llm_model_service)]
 
 
-@router.post("", response_model=LlmModelResponse, status_code=201)
+@router.post("", response_model=APIResponse[LlmModelResponse], status_code=201)
 async def create_llm_model(
     data: LlmModelCreate,
     current_user: CurrentUser,
@@ -45,10 +45,10 @@ async def create_llm_model(
 ):
     """Create a new LLM model configuration"""
     model = await service.create_model(current_user.id, data)
-    return model
+    return APIResponse(data=model, message="创建成功")
 
 
-@router.get("", response_model=LlmModelListResponse)
+@router.get("", response_model=APIResponse[PageData[LlmModelResponse]])
 async def list_llm_models(
     current_user: CurrentUser,
     service: LLMModelServiceDep,
@@ -56,16 +56,10 @@ async def list_llm_models(
     page_size: int = Query(default=20, ge=1, le=100),
 ):
     """List all LLM models for the current user"""
-    items, total = await service.list_models(current_user.id, page, page_size)
-    return LlmModelListResponse(
-        items=[LlmModelResponse.model_validate(item) for item in items],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    return APIResponse(data=await service.list_models(current_user.id, page, page_size))
 
 
-@router.get("/default", response_model=LlmModelResponse)
+@router.get("/default", response_model=APIResponse[LlmModelResponse])
 async def get_default_llm_model(
     current_user: CurrentUser,
     service: LLMModelServiceDep,
@@ -74,21 +68,20 @@ async def get_default_llm_model(
     model = await service.get_default_model(current_user.id)
     if not model:
         raise HTTPException(status_code=404, detail="No default LLM model configured")
-    return model
+    return APIResponse(data=model)
 
 
-@router.get("/{model_id}", response_model=LlmModelResponse)
+@router.get("/{model_id}", response_model=APIResponse[LlmModelResponse])
 async def get_llm_model(
     model_id: str,
     current_user: CurrentUser,
     service: LLMModelServiceDep,
 ):
     """Get a specific LLM model"""
-    model = await service.get_model(model_id, current_user.id)
-    return model
+    return APIResponse(data=await service.get_model(model_id, current_user.id))
 
 
-@router.put("/{model_id}", response_model=LlmModelResponse)
+@router.put("/{model_id}", response_model=APIResponse[LlmModelResponse])
 async def update_llm_model(
     model_id: str,
     data: LlmModelUpdate,
@@ -96,8 +89,7 @@ async def update_llm_model(
     service: LLMModelServiceDep,
 ):
     """Update a LLM model"""
-    model = await service.update_model(model_id, current_user.id, data)
-    return model
+    return APIResponse(data=await service.update_model(model_id, current_user.id, data))
 
 
 @router.delete("/{model_id}", status_code=204)
