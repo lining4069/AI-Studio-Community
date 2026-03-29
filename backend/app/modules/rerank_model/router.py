@@ -34,11 +34,14 @@ def get_rerank_model_service(
     return RerankModelService(repo)
 
 
+RerankModelServiceDep = Annotated[RerankModelService, Depends(get_rerank_model_service)]
+
+
 @router.post("", response_model=RerankModelResponse, status_code=201)
 async def create_rerank_model(
     data: RerankModelCreate,
     current_user: CurrentUser,
-    service: RerankModelService,
+    service: RerankModelServiceDep,
 ):
     """Create a new Rerank model configuration"""
     model = await service.create_model(current_user.id, data)
@@ -48,7 +51,7 @@ async def create_rerank_model(
 @router.get("", response_model=RerankModelListResponse)
 async def list_rerank_models(
     current_user: CurrentUser,
-    service: RerankModelService,
+    service: RerankModelServiceDep,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
@@ -65,7 +68,7 @@ async def list_rerank_models(
 @router.get("/default", response_model=RerankModelResponse)
 async def get_default_rerank_model(
     current_user: CurrentUser,
-    service: RerankModelService,
+    service: RerankModelServiceDep,
 ):
     """Get the default Rerank model"""
     model = await service.get_default_model(current_user.id)
@@ -80,7 +83,7 @@ async def get_default_rerank_model(
 async def get_rerank_model(
     model_id: str,
     current_user: CurrentUser,
-    service: RerankModelService,
+    service: RerankModelServiceDep,
 ):
     """Get a specific Rerank model"""
     model = await service.get_model(model_id, current_user.id)
@@ -92,7 +95,7 @@ async def update_rerank_model(
     model_id: str,
     data: RerankModelUpdate,
     current_user: CurrentUser,
-    service: RerankModelService,
+    service: RerankModelServiceDep,
 ):
     """Update a Rerank model"""
     model = await service.update_model(model_id, current_user.id, data)
@@ -103,7 +106,7 @@ async def update_rerank_model(
 async def delete_rerank_model(
     model_id: str,
     current_user: CurrentUser,
-    service: RerankModelService,
+    service: RerankModelServiceDep,
 ):
     """Delete a Rerank model"""
     await service.delete_model(model_id, current_user.id)

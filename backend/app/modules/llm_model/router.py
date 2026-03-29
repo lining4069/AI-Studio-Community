@@ -34,11 +34,14 @@ def get_llm_model_service(
     return LlmModelService(repo)
 
 
+LLMModelServiceDep = Annotated[LlmModelService, Depends(get_llm_model_service)]
+
+
 @router.post("", response_model=LlmModelResponse, status_code=201)
 async def create_llm_model(
     data: LlmModelCreate,
     current_user: CurrentUser,
-    service: LlmModelService,
+    service: LLMModelServiceDep,
 ):
     """Create a new LLM model configuration"""
     model = await service.create_model(current_user.id, data)
@@ -48,7 +51,7 @@ async def create_llm_model(
 @router.get("", response_model=LlmModelListResponse)
 async def list_llm_models(
     current_user: CurrentUser,
-    service: LlmModelService,
+    service: LLMModelServiceDep,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
@@ -65,7 +68,7 @@ async def list_llm_models(
 @router.get("/default", response_model=LlmModelResponse)
 async def get_default_llm_model(
     current_user: CurrentUser,
-    service: LlmModelService,
+    service: LLMModelServiceDep,
 ):
     """Get the default LLM model"""
     model = await service.get_default_model(current_user.id)
@@ -78,7 +81,7 @@ async def get_default_llm_model(
 async def get_llm_model(
     model_id: str,
     current_user: CurrentUser,
-    service: LlmModelService,
+    service: LLMModelServiceDep,
 ):
     """Get a specific LLM model"""
     model = await service.get_model(model_id, current_user.id)
@@ -90,7 +93,7 @@ async def update_llm_model(
     model_id: str,
     data: LlmModelUpdate,
     current_user: CurrentUser,
-    service: LlmModelService,
+    service: LLMModelServiceDep,
 ):
     """Update a LLM model"""
     model = await service.update_model(model_id, current_user.id, data)
@@ -101,7 +104,7 @@ async def update_llm_model(
 async def delete_llm_model(
     model_id: str,
     current_user: CurrentUser,
-    service: LlmModelService,
+    service: LLMModelServiceDep,
 ):
     """Delete a LLM model"""
     await service.delete_model(model_id, current_user.id)

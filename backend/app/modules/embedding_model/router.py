@@ -34,11 +34,14 @@ def get_embedding_model_service(
     return EmbeddingModelService(repo)
 
 
+EmbeddingModelServiceDep = Annotated[EmbeddingModelService, Depends(get_embedding_model_service)]
+
+
 @router.post("", response_model=EmbeddingModelResponse, status_code=201)
 async def create_embedding_model(
     data: EmbeddingModelCreate,
     current_user: CurrentUser,
-    service: EmbeddingModelService,
+    service: EmbeddingModelServiceDep,
 ):
     """Create a new Embedding model configuration"""
     model = await service.create_model(current_user.id, data)
@@ -48,7 +51,7 @@ async def create_embedding_model(
 @router.get("", response_model=EmbeddingModelListResponse)
 async def list_embedding_models(
     current_user: CurrentUser,
-    service: EmbeddingModelService,
+    service: EmbeddingModelServiceDep,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
@@ -65,7 +68,7 @@ async def list_embedding_models(
 @router.get("/default", response_model=EmbeddingModelResponse)
 async def get_default_embedding_model(
     current_user: CurrentUser,
-    service: EmbeddingModelService,
+    service: EmbeddingModelServiceDep,
 ):
     """Get the default Embedding model"""
     model = await service.get_default_model(current_user.id)
@@ -80,7 +83,7 @@ async def get_default_embedding_model(
 async def get_embedding_model(
     model_id: str,
     current_user: CurrentUser,
-    service: EmbeddingModelService,
+    service: EmbeddingModelServiceDep,
 ):
     """Get a specific Embedding model"""
     model = await service.get_model(model_id, current_user.id)
@@ -92,7 +95,7 @@ async def update_embedding_model(
     model_id: str,
     data: EmbeddingModelUpdate,
     current_user: CurrentUser,
-    service: EmbeddingModelService,
+    service: EmbeddingModelServiceDep,
 ):
     """Update an Embedding model"""
     model = await service.update_model(model_id, current_user.id, data)
@@ -103,7 +106,7 @@ async def update_embedding_model(
 async def delete_embedding_model(
     model_id: str,
     current_user: CurrentUser,
-    service: EmbeddingModelService,
+    service: EmbeddingModelServiceDep,
 ):
     """Delete an Embedding model"""
     await service.delete_model(model_id, current_user.id)

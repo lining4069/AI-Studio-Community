@@ -1,13 +1,13 @@
 # 跨模块通用代码
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from app.utils.datetime_utils import format_dt, now_utc
+from app.utils.datetime_utils import now_utc
 
 
 class Base(DeclarativeBase):
@@ -30,26 +30,6 @@ class TimestampMixin:
         nullable=False,
         comment="更新时间",
     )
-
-
-class BaseResponseSchema(BaseModel):
-    """基础Pydantic模型"""
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        populate_by_name=True,
-    )
-
-    @field_serializer("*", when_used="json")
-    def serialize_datetime(self, value: Any) -> Any:
-        """
-        统一 datetime 序列化：
-        - 转换为 APP_TIMEZONE
-        - 输出字符串
-        """
-        if isinstance(value, datetime):
-            return format_dt(value)
-        return value
 
 
 T = TypeVar("T")

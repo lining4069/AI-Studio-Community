@@ -6,7 +6,8 @@ from app.common.logger import logger
 from app.common.responses import APIResponse
 from app.dependencies import CurrentUser
 from app.dependencies.auth import TokenPayload, get_token_payload
-from app.dependencies.services import get_auth_service
+from app.dependencies.infras import AppSettings, CacheClient, DBAsyncSession
+from app.modules.auth.repository import AuthRepository
 from app.modules.auth.schema import (
     RefreshTokenRequest,
     RefreshTokenResponse,
@@ -19,10 +20,27 @@ from app.modules.auth.service import AuthService
 router = APIRouter()
 
 
+def get_auth_repository(db: DBAsyncSession) -> AuthRepository:
+    """Auth 模块 Repository 注入"""
+    return AuthRepository(db)
+
+
+def get_auth_service(
+    repo: Annotated[AuthRepository, Depends(get_auth_repository)],
+    cache: CacheClient,
+    settings: AppSettings,
+) -> AuthService:
+    """Auth 模块 Service 注入"""
+    return AuthService(repo, cache, settings)
+
+
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+
+
 @router.post("/register", response_model=APIResponse[UserAuthedResponse])
 async def register(
     user_data: UserCreateRequest,
-    service: Annotated[AuthService, Depends(get_auth_service)],
+    service: AuthServiceDep,
 ):
     """
     用户注册
@@ -36,7 +54,7 @@ async def register(
 @router.post("/login", response_model=APIResponse[UserAuthedResponse])
 async def login(
     user_data: UserCreateRequest,
-    service: Annotated[AuthService, Depends(get_auth_service)],
+    service: AuthServiceDep,
 ):
     """
     用户登录
@@ -50,7 +68,7 @@ async def login(
 @router.post("/refresh", response_model=APIResponse[RefreshTokenResponse])
 async def refresh(
     data: RefreshTokenRequest,
-    service: Annotated[AuthService, Depends(get_auth_service)],
+    service: AuthServiceDep,
 ):
     """
     刷新 Access Token(带 Rotation)
@@ -65,7 +83,7 @@ async def logout(
     data: UserLogoutRequest,
     token_payload: Annotated[TokenPayload, Depends(get_token_payload)],
     user: CurrentUser,
-    service: Annotated[AuthService, Depends(get_auth_service)],
+    service: AuthServiceDep,
 ):
     """
     用户登出

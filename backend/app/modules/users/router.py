@@ -4,8 +4,11 @@ from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.common.logger import logger
 from app.common.responses import APIResponse
+from app.common.storage import AvatarFileStorage
 from app.dependencies import CurrentUser
-from app.dependencies.services import get_user_service
+from app.dependencies.infras import DBAsyncSession
+from app.dependencies.storage import get_avatar_storage
+from app.modules.users.repository import UserRepository
 from app.modules.users.schema import (
     AvatarUpdateResponse,
     UserPwdUpdateRequest,
@@ -17,10 +20,26 @@ from app.modules.users.service import UserService
 router = APIRouter()
 
 
+def get_user_repository(db: DBAsyncSession) -> UserRepository:
+    """用户模块 Repository 注入"""
+    return UserRepository(db)
+
+
+def get_user_service(
+    repo: Annotated[UserRepository, Depends(get_user_repository)],
+    avatar_storage: Annotated[AvatarFileStorage, Depends(get_avatar_storage)],
+) -> UserService:
+    """用户模块 Service 注入"""
+    return UserService(repo, avatar_storage)
+
+
+UserServiceDep = Annotated[UserService, Depends(get_user_service)]
+
+
 @router.get("/info", response_model=APIResponse[UserResponse])
 async def get_info(
     user: CurrentUser,
-    service: Annotated[UserService, Depends(get_user_service)],
+    service: UserServiceDep,
 ):
     """获取用户信息"""
     logger.info("接口 用户登录 :'/info' 被访问")
@@ -31,7 +50,7 @@ async def get_info(
 async def update_user(
     update_data: UserUpdateRequest,
     user: CurrentUser,
-    service: Annotated[UserService, Depends(get_user_service)],
+    service: UserServiceDep,
 ):
     """更新用户信息"""
     logger.info("接口 用户更新 :'/update' 被访问")
@@ -43,7 +62,7 @@ async def update_user(
 async def update_password(
     pwd_data: UserPwdUpdateRequest,
     user: CurrentUser,
-    service: Annotated[UserService, Depends(get_user_service)],
+    service: UserServiceDep,
 ):
     """
     修改密码
@@ -57,7 +76,7 @@ async def update_password(
 @router.post("/avatar", response_model=APIResponse[AvatarUpdateResponse])
 async def upload_avatar(
     user: CurrentUser,
-    service: Annotated[UserService, Depends(get_user_service)],
+    service: UserServiceDep,
     file: UploadFile = File(...),
 ):
     """

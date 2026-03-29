@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 
-from app.common.base import BaseResponseSchema
 from app.modules.users.schema import UserResponse
 
 
@@ -35,7 +34,7 @@ class UserLoginRequest(BaseModel):
     device_id: str = Field(..., description="设备ID")
 
 
-class UserAuthedResponse(BaseResponseSchema):
+class UserAuthedResponse(BaseModel):
     """登录/注册返回响应"""
 
     access_token: str
@@ -49,7 +48,7 @@ class UserLogoutRequest(BaseModel):
     refresh_token: str
 
 
-class UserLogoutResponse(BaseResponseSchema):
+class UserLogoutResponse(BaseModel):
     """用户登出响应"""
 
     user_id: int

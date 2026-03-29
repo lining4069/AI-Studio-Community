@@ -3,11 +3,12 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.exceptions import NotFoundException, UnauthorizedException
 from app.core.settings import Settings, get_settings
 from app.dependencies.infras.cache import get_cache
-from app.dependencies.repositories import get_user_repository
+from app.dependencies.infras.database import get_db
 from app.modules.users.models import User
 from app.modules.users.repository import UserRepository
 
@@ -21,6 +22,11 @@ class TokenPayload(BaseModel):
 
 
 security = HTTPBearer()
+
+
+def get_user_repository(db: AsyncSession = Depends(get_db)) -> UserRepository:
+    """用户 Repository 注入（供 auth 链使用）"""
+    return UserRepository(db)
 
 
 # 1. 解析 Token（JWT Decode）
