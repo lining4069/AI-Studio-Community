@@ -195,7 +195,7 @@ class AgentSession(Base):
     messages: Mapped[list[dict]] = mapped_column(JSON, default=list)
 
     # Metadata
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    session_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False

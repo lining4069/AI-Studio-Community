@@ -14,9 +14,7 @@ class KbDocumentRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(
-        self, user_id: int, data, collection_name: str = None
-    ) -> KbDocument:
+    async def create(self, user_id: int, data, collection_name: str) -> KbDocument:
         """Create a new Knowledge Base document"""
         model = KbDocument(
             user_id=user_id,
@@ -106,9 +104,7 @@ class KbFileRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(
-        self, user_id: int, kb_id: str, data, file_md5: str = None
-    ) -> KbFile:
+    async def create(self, user_id: int, kb_id: str, data, file_md5: str) -> KbFile:
         """Create a new Knowledge Base file record"""
         model = KbFile(
             user_id=user_id,
@@ -194,7 +190,7 @@ class KbChunkRepository:
         file_id: str,
         content: str,
         chunk_index: int,
-        metadata: dict = None,
+        metadata: dict,
     ) -> KbChunk:
         """Create a new chunk record"""
         model = KbChunk(

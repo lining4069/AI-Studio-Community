@@ -6,7 +6,7 @@ Provides tool for querying knowledge bases.
 
 from app.modules.agent.tools.base import BaseTool, ToolDefinition, ToolResult
 from app.modules.knowledge_base.repository import KbDocumentRepository
-from app.modules.knowledge_base.service_factory import get_rag_service
+from app.services.rag.service_factory import get_rag_service
 
 
 class KnowledgeBaseTool(BaseTool):
@@ -64,8 +64,8 @@ class KnowledgeBaseTool(BaseTool):
                 return ToolResult.failure("知识库不存在或无权限访问")
 
             # Get RAG service
-            rag_service = await get_rag_service(kb, self.db)
-            vector_store = rag_service.get_vector_store(kb.collection_name)
+            rag_service = await get_rag_service(kb)
+            vector_store = rag_service.get_vector_store(kb.collection_name, kb.user_id)
 
             # Perform hybrid search
             results = vector_store.hybrid_search(

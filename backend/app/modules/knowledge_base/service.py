@@ -23,7 +23,7 @@ from app.modules.knowledge_base.schema import (
     RetrievalRequest,
     RetrievalResponse,
 )
-from app.modules.knowledge_base.service_factory import get_rag_service
+from app.services.rag.service_factory import get_rag_service
 
 
 class KnowledgeBaseService:
@@ -98,8 +98,8 @@ class KnowledgeBaseService:
 
         # Delete from vector store
         try:
-            rag_service = await get_rag_service(kb, self.doc_repo.db)
-            await rag_service.delete_knowledge_base(kb.collection_name)
+            rag_service = await get_rag_service(kb)
+            await rag_service.delete_knowledge_base(kb.collection_name, kb.user_id)
         except Exception as e:
             logger.error(f"Failed to delete vector store: {e}")
 
@@ -197,8 +197,8 @@ class KnowledgeBaseService:
 
         # Delete from vector store
         try:
-            rag_service = await get_rag_service(kb, self.doc_repo.db)
-            await rag_service.delete_document(file_id, kb.collection_name)
+            rag_service = await get_rag_service(kb)
+            await rag_service.delete_document(file_id, kb.collection_name, kb.user_id)
         except Exception as e:
             logger.error(f"Failed to delete from vector store: {e}")
 
@@ -247,7 +247,7 @@ class KnowledgeBaseService:
         kb = await self.get_kb(file.kb_id, user_id)
 
         # Get or create RAG service
-        rag_service = await get_rag_service(kb, self.doc_repo.db)
+        rag_service = await get_rag_service(kb)
 
         try:
             # Index document
@@ -256,6 +256,7 @@ class KnowledgeBaseService:
                 file_id=file_id,
                 file_path=file.file_path,
                 file_name=file.file_name,
+                user_id=kb.user_id,
                 chunk_size=kb.chunk_size,
                 chunk_overlap=kb.chunk_overlap,
                 collection_name=kb.collection_name,
@@ -312,31 +313,44 @@ class KnowledgeBaseService:
         # Validate KB exists
         await self.get_kb(kb_id, user_id)
 
+        # Determine config
+        config = request.config or RetrievalConfig()
+        if request.config is None:
+            # Use KB defaults
+            search_kb = await self.get_kb(kb_id, user_id)
+            config.retrieval_mode = RetrievalMode(search_kb.retrieval_mode)
+            config.top_k = search_kb.top_k
+            config.similarity_threshold = search_kb.similarity_threshold
+            config.vector_weight = search_kb.vector_weight
+            config.enable_rerank = search_kb.enable_rerank
+            config.rerank_top_k = search_kb.rerank_top_k
+
         # Determine KBs to search
         search_kb_ids = request.kb_ids or [kb_id]
         all_results = []
 
         for search_kb_id in search_kb_ids:
             search_kb = await self.get_kb(search_kb_id, user_id)
-            search_rag_service = await get_rag_service(search_kb, self.doc_repo.db)
+            search_rag_service = await get_rag_service(search_kb)
 
             # Retrieve
             results = await search_rag_service.retrieve(
                 query=request.query,
                 collection_name=search_kb.collection_name,
-                top_k=request.config.top_k,
-                retrieval_mode=request.config.retrieval_mode,
-                vector_weight=request.config.vector_weight,
-                similarity_threshold=request.config.similarity_threshold,
-                enable_rerank=request.config.enable_rerank and search_kb.enable_rerank,
-                rerank_top_k=request.config.rerank_top_k,
+                user_id=search_kb.user_id,
+                top_k=config.top_k,
+                retrieval_mode=config.retrieval_mode,
+                vector_weight=config.vector_weight,
+                similarity_threshold=config.similarity_threshold,
+                enable_rerank=config.enable_rerank and search_kb.enable_rerank,
+                rerank_top_k=config.rerank_top_k,
             )
 
             all_results.extend(results)
 
         # Sort by score and limit
         all_results.sort(key=lambda x: x.score, reverse=True)
-        all_results = all_results[: request.config.top_k]
+        all_results = all_results[: config.top_k]
 
         return RetrievalResponse(
             results=all_results,
@@ -366,8 +380,20 @@ class KnowledgeBaseService:
 
         kb = await self.get_kb(kb_id, user_id)
 
+        # Get LLM provider if LLM model ID provided
+        llm_provider = None
+        if request.llm_model_id:
+            from app.modules.llm_model.repository import LlmModelRepository
+            from app.services.factory.model_factory import create_llm
+
+            llm_repo = LlmModelRepository(self.doc_repo.db)
+            llm_model = await llm_repo.get_by_id(request.llm_model_id, user_id)
+            if not llm_model:
+                raise NotFoundException("LLMModel", request.llm_model_id)
+            llm_provider = create_llm(llm_model)
+
         # Get or create RAG service
-        rag_service = await get_rag_service(kb, self.doc_repo.db)
+        rag_service = await get_rag_service(kb, llm_provider=llm_provider)
 
         # Determine config
         config = request.config or RetrievalConfig()
@@ -387,12 +413,13 @@ class KnowledgeBaseService:
 
         for search_kb_id in search_kb_ids:
             search_kb = await self.get_kb(search_kb_id, user_id)
-            search_rag_service = await get_rag_service(search_kb, self.doc_repo.db)
+            search_rag_service = await get_rag_service(search_kb)
 
             # Retrieve
             results = await search_rag_service.retrieve(
                 query=request.query,
                 collection_name=search_kb.collection_name,
+                user_id=search_kb.user_id,
                 top_k=config.top_k,
                 retrieval_mode=config.retrieval_mode,
                 vector_weight=config.vector_weight,
@@ -413,24 +440,12 @@ class KnowledgeBaseService:
         # Generate if LLM model ID provided
         answer = ""
         if request.llm_model_id:
-            from app.modules.llm_model.repository import LlmModelRepository
-            from app.services.factory.model_factory import create_llm
-
-            # Get LLM model from repository
-            llm_repo = LlmModelRepository(self.doc_repo.db)
-            llm_model = await llm_repo.get_by_id(request.llm_model_id, user_id)
-            if not llm_model:
-                raise NotFoundException("LLMModel", request.llm_model_id)
-
-            # Create LLM provider and set on the primary KB's RAG service
-            llm_provider = create_llm(llm_model)
-            rag_service.llm_provider = llm_provider
-
             # Generate using the primary KB's collection
             # Note: multi-KB RAG re-retrieves from the primary KB
             answer, results, sources = await rag_service.rag(
                 query=request.query,
                 collection_name=kb.collection_name,
+                user_id=kb.user_id,
                 top_k=config.top_k,
                 retrieval_mode=config.retrieval_mode,
                 vector_weight=config.vector_weight,

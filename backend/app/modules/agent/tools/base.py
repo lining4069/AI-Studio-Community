@@ -55,12 +55,13 @@ class BaseTool(ABC):
         self.description = description
 
     @abstractmethod
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, query: str = "", **kwargs) -> ToolResult:
         """
         Execute the tool with given arguments.
 
         Args:
-            **kwargs: Tool-specific arguments
+            query: Query string (optional; tools that don't need it ignore it)
+            **kwargs: Additional tool-specific arguments
 
         Returns:
             ToolResult with execution result

@@ -6,47 +6,18 @@ import aiohttp
 
 
 class HttpSessionShared:
-    """Shared aiohttp ClientSession singleton."""
-
-    default: aiohttp.ClientSession | None = None
+    _session: aiohttp.ClientSession | None = None
 
     @classmethod
-    async def ensure_session(cls):
-        """Ensure session exists."""
-        # 检查是否需要创建新的 session
-        need_new_session = False
-
-        if cls.default is None:
-            need_new_session = True
-        elif cls.default.closed:
-            need_new_session = True
-        else:
-            # 检查 session 绑定的事件循环是否仍然有效
-            try:
-                loop = getattr(cls.default, "_loop", None)
-                if loop is None or loop.is_closed():
-                    need_new_session = True
-            except (RuntimeError, AttributeError):
-                need_new_session = True
-
-        if need_new_session:
-            if cls.default and not cls.default.closed:
-                try:
-                    await cls.default.close()
-                except Exception:
-                    pass
-            cls.default = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
-
-        return cls.default
+    async def ensure_session(cls) -> aiohttp.ClientSession:
+        if cls._session is None or cls._session.closed:
+            cls._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30)
+            )
+        return cls._session
 
     @classmethod
     async def cleanup(cls):
-        """Cleanup session."""
-        if cls.default and not cls.default.closed:
-            await cls.default.close()
-            cls.default = None
-
-    @classmethod
-    def get_session(cls):
-        """Get the current session if it exists, otherwise None."""
-        return cls.default
+        if cls._session and not cls._session.closed:
+            await cls._session.close()
+            cls._session = None

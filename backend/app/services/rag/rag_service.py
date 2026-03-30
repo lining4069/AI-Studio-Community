@@ -18,7 +18,7 @@ from app.modules.knowledge_base.models import RetrievalMode
 from app.modules.knowledge_base.schema import RetrievalResult
 from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
 from app.services.rag.text_splitter import DocumentProcessor, TextSplitter
-from app.services.vectordb.chroma_service import ChromaVectorStore
+from app.services.vectordb.base import VectorDBProvider, VectorStore
 
 
 class RAGService:
@@ -37,7 +37,7 @@ class RAGService:
         embedding_provider: EmbeddingProvider,
         reranker_provider: RerankerProvider | None = None,
         llm_provider: LLMProvider | None = None,
-        chroma_persist_dir: str = "./data/chroma",
+        vector_provider: VectorDBProvider | None = None,
     ):
         """
         Initialize RAG Service.
@@ -46,30 +46,33 @@ class RAGService:
             embedding_provider: Provider for text embeddings
             reranker_provider: Optional provider for reranking
             llm_provider: Optional provider for LLM generation
-            chroma_persist_dir: Directory for ChromaDB persistence
+            vector_provider: VectorDB provider (ChromaDB, Milvus, etc.)
         """
         self.embedding_provider = embedding_provider
         self.reranker_provider = reranker_provider
         self.llm_provider = llm_provider
-        self.chroma_persist_dir = chroma_persist_dir
+        self.vector_provider = vector_provider
         self._text_splitter = TextSplitter()
         self._doc_processor = DocumentProcessor()
 
-    def get_vector_store(self, collection_name: str) -> ChromaVectorStore:
+    def get_vector_store(
+        self,
+        collection_name: str,
+        user_id: int,
+    ) -> VectorStore:
         """
-        Get a ChromaDB vector store for a collection.
+        Get a vector store for a collection.
 
         Args:
-            collection_name: Name of the ChromaDB collection
+            collection_name: Name of the collection (typically kb_id)
+            user_id: User ID for data isolation
 
         Returns:
-            ChromaVectorStore instance
+            VectorStore instance
         """
-        return ChromaVectorStore(
-            collection_name=collection_name,
-            embedding_provider=self.embedding_provider,
-            persist_directory=self.chroma_persist_dir,
-        )
+        if self.vector_provider is None:
+            raise ValueError("vector_provider is required")
+        return self.vector_provider.get_vector_store(collection_name, user_id)
 
     # =========================================================================
     # Document Indexing
@@ -81,6 +84,7 @@ class RAGService:
         file_id: str,
         file_path: str,
         file_name: str,
+        user_id: int,
         chunk_size: int = 512,
         chunk_overlap: int = 50,
         collection_name: str | None = None,
@@ -94,16 +98,17 @@ class RAGService:
             file_id: File ID in database
             file_path: Path to the file
             file_name: Original file name
+            user_id: User ID for data isolation
             chunk_size: Chunk size for splitting
             chunk_overlap: Overlap between chunks
-            collection_name: ChromaDB collection name (defaults to kb_id)
+            collection_name: Collection name (defaults to kb_id)
             metadata: Additional metadata for chunks
 
         Returns:
             Tuple of (chunk_count, chunk_ids)
         """
         collection_name = collection_name or kb_id
-        vector_store = self.get_vector_store(collection_name)
+        vector_store = self.get_vector_store(collection_name, user_id)
 
         # Process document into chunks
         processor = DocumentProcessor(
@@ -123,14 +128,18 @@ class RAGService:
             logger.warning(f"No chunks generated from file: {file_path}")
             return 0, []
 
-        # Prepare for ChromaDB
+        # Prepare texts and metadata
         texts = [c["content"] for c in chunks]
         chunk_metadatas = [c["metadata"] for c in chunks]
         chunk_ids = [str(uuid.uuid4()) for _ in chunks]
 
+        # Compute embeddings
+        embeddings = await self.embedding_provider.aembed(texts)
+
         # Add to vector store
         vector_store.add_texts(
             texts=texts,
+            embeddings=embeddings,
             metadatas=chunk_metadatas,
             ids=chunk_ids,
         )
@@ -145,34 +154,41 @@ class RAGService:
         self,
         file_id: str,
         collection_name: str,
+        user_id: int,
     ) -> int:
         """
         Delete a document from the vector store.
 
         Args:
             file_id: File ID to delete
-            collection_name: ChromaDB collection name
+            collection_name: Collection name
+            user_id: User ID for data isolation
 
         Returns:
             Number of chunks deleted
         """
-        vector_store = self.get_vector_store(collection_name)
+        vector_store = self.get_vector_store(collection_name, user_id)
         deleted = vector_store.delete_by_file_id(file_id)
         logger.info(f"Deleted {deleted} chunks for file {file_id}")
         return deleted
 
-    async def delete_knowledge_base(self, collection_name: str) -> int:
+    async def delete_knowledge_base(
+        self,
+        collection_name: str,
+        user_id: int,
+    ) -> int:
         """
         Delete all chunks for a knowledge base.
 
         Args:
-            collection_name: ChromaDB collection name
+            collection_name: Collection name
+            user_id: User ID for data isolation
 
         Returns:
             Number of chunks deleted
         """
-        vector_store = self.get_vector_store(collection_name)
-        count_before = vector_store.collection.count()
+        vector_store = self.get_vector_store(collection_name, user_id)
+        count_before = vector_store.count()
         vector_store.delete_collection()
         logger.info(f"Deleted all chunks for KB {collection_name}")
         return count_before
@@ -185,6 +201,7 @@ class RAGService:
         self,
         query: str,
         collection_name: str,
+        user_id: int,
         top_k: int = 5,
         retrieval_mode: RetrievalMode = RetrievalMode.HYBRID,
         vector_weight: float = 0.7,
@@ -198,7 +215,8 @@ class RAGService:
 
         Args:
             query: Query text
-            collection_name: ChromaDB collection name
+            collection_name: Collection name
+            user_id: User ID for data isolation
             top_k: Number of initial results
             retrieval_mode: dense, sparse, or hybrid
             vector_weight: Weight for dense results in hybrid mode
@@ -210,7 +228,7 @@ class RAGService:
         Returns:
             List of RetrievalResult objects
         """
-        vector_store = self.get_vector_store(collection_name)
+        vector_store = self.get_vector_store(collection_name, user_id)
 
         # Perform search based on mode
         if retrieval_mode == RetrievalMode.DENSE:
@@ -256,12 +274,13 @@ class RAGService:
 
     def _sparse_search(
         self,
-        vector_store: ChromaVectorStore,
+        vector_store: VectorStore,
         query: str,
         k: int,
         filter_metadata: dict | None,
     ) -> list[tuple[str, str, float]]:
         """Perform sparse/BM25 search"""
+        # NOTE: sparse search is chromadb-specific; other backends fall back to dense
         try:
             return vector_store.collection.query_sparse(
                 query_texts=[query],
@@ -269,7 +288,7 @@ class RAGService:
                 where_filter=filter_metadata,
             )
         except Exception as e:
-            logger.warning(f"Sparse search failed, falling back to dense: {e}")
+            logger.warning(f"Sparse search not supported, falling back to dense: {e}")
             return vector_store.similarity_search(query, k, filter_metadata)
 
     async def _rerank(
@@ -367,14 +386,12 @@ class RAGService:
         response = await self.llm_provider.achat(messages)
         return response
 
-    _default_prompt = """你是一个问答助手。请根据以下参考资料回答用户的问题。
-
-参考资料:
-{context}
-
-用户问题: {question}
-
-请基于参考资料给出准确、详细的回答。如果参考资料中没有相关信息，请说明无法回答。"""
+    _default_prompt = """
+        你是一个问答助手。请根据以下参考资料回答用户的问题。
+        参考资料:{context}
+        用户问题: {question}
+        请基于参考资料给出准确、详细的回答。如果参考资料中没有相关信息，请说明无法回答。
+    """
 
     # =========================================================================
     # Full RAG Pipeline
@@ -384,6 +401,7 @@ class RAGService:
         self,
         query: str,
         collection_name: str,
+        user_id: int,
         top_k: int = 5,
         retrieval_mode: RetrievalMode = RetrievalMode.HYBRID,
         vector_weight: float = 0.7,
@@ -399,7 +417,8 @@ class RAGService:
 
         Args:
             query: User query
-            collection_name: ChromaDB collection name
+            collection_name: Collection name
+            user_id: User ID for data isolation
             top_k: Number of retrieval results
             retrieval_mode: dense, sparse, or hybrid
             vector_weight: Weight for dense in hybrid mode
@@ -417,6 +436,7 @@ class RAGService:
         results = await self.retrieve(
             query=query,
             collection_name=collection_name,
+            user_id=user_id,
             top_k=top_k,
             retrieval_mode=retrieval_mode,
             vector_weight=vector_weight,

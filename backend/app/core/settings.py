@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     LOG_DIR: Path = BASE_DIR / "logs"
     # 业务系统
     BUSINESS_FILES_BASE_DIR: Path = BASE_DIR / "storage"
+    # ChromaDB 持久化目录
+    CHROMA_PERSIST_DIR: Path = BUSINESS_FILES_BASE_DIR / "chromadb"
+
+    # 向量数据库配置
+    VECTOR_DB_ENGINE: str = "chromadb"  # chromadb | milvus
+    # Milvus 配置
+    MILVUS_HOST: str = "localhost"
+    MILVUS_PORT: int = 19530
+    MILVUS_USER: str = ""
+    MILVUS_PASSWORD: str = ""
 
     @property
     def REDIS_URL(self) -> str:
