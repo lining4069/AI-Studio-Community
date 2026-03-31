@@ -25,7 +25,7 @@ class RerankModelRepository:
         model = RerankModel(
             user_id=user_id,
             name=data.name,
-            type=data.type.value,
+            provider=data.provider,
             model_name=data.model_name,
             base_url=data.base_url,
             api_key=None,
@@ -91,10 +91,6 @@ class RerankModelRepository:
     ) -> RerankModel:
         """Update a Rerank model"""
         update_data = data.model_dump(exclude_unset=True, exclude_none=True)
-
-        # Handle type conversion for enum
-        if "type" in update_data and update_data["type"]:
-            update_data["type"] = update_data["type"].value
 
         for field, value in update_data.items():
             setattr(model, field, value)
