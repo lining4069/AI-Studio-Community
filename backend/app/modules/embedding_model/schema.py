@@ -63,6 +63,7 @@ class EmbeddingModelResponse(EmbeddingModelBase):
     user_id: int
     encrypted_api_key: str | None = None
     api_key: str | None = Field(None, exclude=True)
+    is_dimensionable: bool | None = None
     created_at: datetime
     updated_at: datetime
 
