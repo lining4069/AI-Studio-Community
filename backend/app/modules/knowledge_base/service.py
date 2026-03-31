@@ -310,12 +310,13 @@ class KnowledgeBaseService:
         Returns:
             RetrievalResponse with results
         """
-        # Get KB
-        kb_id = request.kb_id or request.kb_ids[0] if request.kb_ids else None
-        if not kb_id:
-            raise ValidationException("kb_id or kb_ids is required")
+        # Get KBs to search
+        if not request.kb_ids:
+            raise ValidationException("kb_ids is required")
 
-        # Validate KB exists
+        kb_id = request.kb_ids[0]
+
+        # Validate primary KB exists
         await self.get_kb(kb_id, user_id)
 
         # Determine config
@@ -330,8 +331,8 @@ class KnowledgeBaseService:
             config.enable_rerank = search_kb.enable_rerank
             config.rerank_top_k = search_kb.rerank_top_k
 
-        # Determine KBs to search
-        search_kb_ids = request.kb_ids or [kb_id]
+        # All KBs to search
+        search_kb_ids = request.kb_ids
         all_results = []
 
         for search_kb_id in search_kb_ids:
@@ -378,10 +379,11 @@ class KnowledgeBaseService:
         Returns:
             RAGResponse with answer and sources
         """
-        # Get KB
-        kb_id = request.kb_id or request.kb_ids[0] if request.kb_ids else None
-        if not kb_id:
-            raise ValidationException("kb_id or kb_ids is required")
+        # Get KBs to search
+        if not request.kb_ids:
+            raise ValidationException("kb_ids is required")
+
+        kb_id = request.kb_ids[0]
 
         kb = await self.get_kb(kb_id, user_id)
 
@@ -412,7 +414,7 @@ class KnowledgeBaseService:
             config.rerank_top_k = kb.rerank_top_k
 
         # Determine KBs to search
-        search_kb_ids = request.kb_ids or [kb_id]
+        search_kb_ids = request.kb_ids
         all_results = []
         all_sources = []
 

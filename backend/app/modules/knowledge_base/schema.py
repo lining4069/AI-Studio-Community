@@ -176,10 +176,7 @@ class RetrievalRequest(BaseModel):
     """Schema for retrieval request"""
 
     query: str = Field(..., min_length=1, description="Query text")
-    kb_id: str | None = Field(None, description="Knowledge base ID")
-    kb_ids: list[str] | None = Field(
-        None, description="Multiple KB IDs for multi-KB search"
-    )
+    kb_ids: list[str] = Field(..., min_length=1, description="单库或多库搜索")
     config: RetrievalConfig | None = Field(
         default_factory=RetrievalConfig, description="Retrieval configuration"
     )
