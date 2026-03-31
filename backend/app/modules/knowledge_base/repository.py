@@ -115,6 +115,7 @@ class KbFileRepository:
             file_type=data.file_type,
             file_md5=file_md5,
             status="pending",
+            file_metadata={},
         )
         self.db.add(model)
         await self.db.flush()

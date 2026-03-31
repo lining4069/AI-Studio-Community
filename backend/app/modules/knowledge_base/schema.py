@@ -4,7 +4,7 @@ Knowledge Base Pydantic schemas.
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.knowledge_base.models import RetrievalMode
 
@@ -104,9 +104,16 @@ class KbFileResponse(KbFileBase):
     status: str
     chunk_count: int
     failed_reason: str | None = None
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict, validation_alias="file_metadata")
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("metadata", check_fields=False, mode="before")
+    @classmethod
+    def _ensure_dict(cls, v):
+        if not isinstance(v, dict):
+            return {}
+        return v
 
 
 class KbFileListResponse(BaseModel):
