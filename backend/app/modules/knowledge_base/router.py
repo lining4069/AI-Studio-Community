@@ -203,10 +203,12 @@ async def upload_file(
     # Read file content
     content = await file.read()
 
-    # Save file to storage
+    # Save file to storage (pass UploadFile, not bytes)
+    # Reset file pointer so save() can read the content
+    await file.seek(0)
     kb = await service.get_kb(kb_id, current_user.id)
     file_path = await file_storage.save(
-        content,
+        file,
         kb_id,
         user_id=kb.user_id,
         filename=filename,
