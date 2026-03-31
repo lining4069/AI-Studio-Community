@@ -9,7 +9,6 @@ Provides endpoints for:
 """
 
 import os
-import uuid
 from typing import Annotated
 
 from fastapi import (
@@ -204,15 +203,14 @@ async def upload_file(
     # Read file content
     content = await file.read()
 
-    # Generate storage path
-    kb = await service.get_kb(kb_id, current_user.id)
-    file_id = uuid.uuid4().hex
-    ext = os.path.splitext(filename)[1]
-    stored_filename = f"{file_id}{ext}"
-    storage_path = os.path.join("kb", str(kb.user_id), kb_id, stored_filename)
-
     # Save file to storage
-    file_path = await file_storage.save(content, storage_path)
+    kb = await service.get_kb(kb_id, current_user.id)
+    file_path = await file_storage.save(
+        content,
+        kb_id,
+        user_id=kb.user_id,
+        filename=filename,
+    )
 
     # Create file record
     kb_file = await service.add_file(
