@@ -133,6 +133,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         model: str = "text-embedding-3-small",
         dimension: int | None = None,
         batch_size: int = 10,
+        is_dimensionable: bool = True,
     ):
         self.api_key = api_key
         self.endpoint = endpoint
@@ -153,9 +154,47 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
             base_url=base_url,
         )
 
-        # Only send dimensions parameter to OpenAI's official endpoint;
-        # compatible endpoints (DashScope, vLLM, etc.) may not support it.
-        self._is_openai_official = "api.openai.com" in base_url
+        # Whether this API endpoint supports the dimensions parameter.
+        # Determined at model registration time via probing.
+        self._is_dimensionable = is_dimensionable
+
+    @classmethod
+    async def probe(
+        cls, api_key: str, endpoint: str, model: str, dimension: int
+    ) -> tuple[int, bool]:
+        """
+        Probe the embedding API to determine actual returned dimension.
+
+        Calls the API with the given dimension and checks what dimension
+        is actually returned. Used during model registration to detect
+        whether the API supports custom dimensions.
+
+        Returns:
+            Tuple of (actual_dimension, is_dimensionable)
+            - actual_dimension: the dimension of vectors returned by the API
+            - is_dimensionable: True if API respects the dimension parameter
+        """
+        # Build base_url the same way __init__ does
+        base_url = endpoint.rstrip("/") if endpoint else "https://api.openai.com/v1"
+        if not base_url.endswith("/v1"):
+            base_url += "/v1"
+
+        http = HttpClient(api_key=api_key, base_url=base_url)
+        try:
+            embeddings = await http.embeddings(
+                model=model,
+                input=["dimension_probe_text"],
+                dimensions=dimension,
+            )
+            actual = len(embeddings[0]) if embeddings else dimension
+            # If API respects dimension, returned dim == requested dim
+            is_dimensionable = actual == dimension
+            return actual, is_dimensionable
+        except Exception:
+            # On error, fall back to assuming dimension is not configurable
+            return dimension, False
+        finally:
+            await http.close()
 
     @property
     def provider_name(self) -> str:
@@ -168,9 +207,8 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts"""
         try:
-            # Only send dimensions to OpenAI's official endpoint; DashScope and
-            # other compatible endpoints may not support it or may ignore it.
-            dims = self._dimension if self._is_openai_official else None
+            # Only send dimensions when the API is known to support it (probed at model registration)
+            dims = self._dimension if self._is_dimensionable else None
             embeddings = await self._http.embeddings(
                 model=self.model,
                 input=texts,
@@ -190,7 +228,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     async def aembed_query(self, query: str) -> list[float]:
         """Generate embedding for a single query"""
         try:
-            dims = self._dimension if self._is_openai_official else None
+            dims = self._dimension if self._is_dimensionable else None
             embeddings = await self._http.embeddings(
                 model=self.model,
                 input=[query],

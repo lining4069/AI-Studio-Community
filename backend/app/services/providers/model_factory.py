@@ -154,6 +154,7 @@ def create_embedding(model: EmbeddingModel) -> EmbeddingProvider:
             model=model.model_name or "",
             dimension=model.dimension,
             batch_size=model.batch_size,
+            is_dimensionable=model.is_dimensionable,
         )
     else:
         raise ValueError(f"Unsupported Embedding type: {model.type}")

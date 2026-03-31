@@ -4,14 +4,14 @@ Embedding Model service for business logic.
 
 from app.common.exceptions import NotFoundException, ValidationException
 from app.common.responses import PageData
-from app.modules.embedding_model.models import EmbeddingModel
+from app.modules.embedding_model.models import EmbeddingModel, EmbeddingType
 from app.modules.embedding_model.repository import EmbeddingModelRepository
 from app.modules.embedding_model.schema import (
     EmbeddingModelCreate,
     EmbeddingModelResponse,
     EmbeddingModelUpdate,
 )
-from app.utils.encrypt_utils import encrypt_api_key
+from app.utils.encrypt_utils import decrypt_api_key, encrypt_api_key
 
 
 class EmbeddingModelService:
@@ -34,7 +34,11 @@ class EmbeddingModelService:
     async def create_model(
         self, user_id: int, data: EmbeddingModelCreate
     ) -> EmbeddingModelResponse:
-        """Create a new Embedding model"""
+        """Create a new Embedding model.
+
+        For API-based models, probes the embedding endpoint before creation
+        to determine whether the API supports custom dimensions.
+        """
         existing = await self.repo.get_by_name(user_id, data.name)
         if existing:
             raise ValidationException(
@@ -48,8 +52,54 @@ class EmbeddingModelService:
         if data.api_key:
             encrypted_key = encrypt_api_key(data.api_key)
 
-        model = await self.repo.create(user_id, data, encrypted_api_key=encrypted_key)
+        # Probe API-based models to detect dimension support
+        is_dimensionable = False
+        if (
+            data.type == EmbeddingType.OPENAI_COMPATIBLE
+            and data.dimension is not None
+            and data.api_key
+        ):
+            actual_dim, is_dimensionable = await self._probe_embedding_dimension(
+                api_key=decrypt_api_key(data.api_key),
+                endpoint=data.endpoint or "",
+                model=data.model_name or "text-embedding-3-small",
+                requested_dimension=data.dimension,
+            )
+            if not is_dimensionable:
+                # API ignores dimensions param; update to actual dimension
+                data.dimension = actual_dim
+
+        model = await self.repo.create(
+            user_id,
+            data,
+            encrypted_api_key=encrypted_key,
+            is_dimensionable=is_dimensionable,
+        )
         return self._to_response(model)
+
+    async def _probe_embedding_dimension(
+        self,
+        api_key: str,
+        endpoint: str,
+        model: str,
+        requested_dimension: int,
+    ) -> tuple[int, bool]:
+        """
+        Probe embedding API to determine actual returned dimension.
+
+        Returns:
+            Tuple of (actual_dimension, is_dimensionable)
+        """
+        from app.services.providers.openai_compatible import (
+            OpenAICompatibleEmbeddingProvider,
+        )
+
+        return await OpenAICompatibleEmbeddingProvider.probe(
+            api_key=api_key,
+            endpoint=endpoint,
+            model=model,
+            dimension=requested_dimension,
+        )
 
     async def get_model(self, model_id: str, user_id: int) -> EmbeddingModelResponse:
         """Get an Embedding model by ID"""

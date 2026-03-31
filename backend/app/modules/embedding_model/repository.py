@@ -23,6 +23,7 @@ class EmbeddingModelRepository:
         user_id: int,
         data: EmbeddingModelCreate,
         encrypted_api_key: str | None = None,
+        is_dimensionable: bool = False,
     ) -> EmbeddingModel:
         """Create a new Embedding model"""
         model = EmbeddingModel(
@@ -38,6 +39,7 @@ class EmbeddingModelRepository:
             batch_size=data.batch_size,
             is_enabled=data.is_enabled,
             is_default=data.is_default,
+            is_dimensionable=is_dimensionable,
             description=data.description,
         )
         self.db.add(model)
