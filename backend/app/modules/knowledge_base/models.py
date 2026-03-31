@@ -50,7 +50,7 @@ class KbDocument(Base):
 
     # Model configuration - references embedding_model by id
     embedding_model_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("llm_models.id", ondelete="SET NULL"), nullable=True
+        String(64), ForeignKey("embedding_models.id", ondelete="SET NULL"), nullable=True
     )
     rerank_model_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("rerank_models.id", ondelete="SET NULL"), nullable=True
