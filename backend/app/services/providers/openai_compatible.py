@@ -153,6 +153,10 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
             base_url=base_url,
         )
 
+        # Only send dimensions parameter to OpenAI's official endpoint;
+        # compatible endpoints (DashScope, vLLM, etc.) may not support it.
+        self._is_openai_official = "api.openai.com" in base_url
+
     @property
     def provider_name(self) -> str:
         return "openai_compatible"
@@ -164,11 +168,20 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts"""
         try:
+            # Only send dimensions to OpenAI's official endpoint; DashScope and
+            # other compatible endpoints may not support it or may ignore it.
+            dims = self._dimension if self._is_openai_official else None
             embeddings = await self._http.embeddings(
                 model=self.model,
                 input=texts,
-                dimensions=self._dimension,
+                dimensions=dims,
             )
+            # Validate returned dimension matches expectation
+            if embeddings and len(embeddings[0]) != self._dimension:
+                logger.warning(
+                    f"Embedding dimension mismatch: expected {self._dimension}, "
+                    f"got {len(embeddings[0])}"
+                )
             return embeddings
         except Exception as e:
             logger.error(f"OpenAI-compatible embedding error: {e}")
@@ -177,12 +190,19 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     async def aembed_query(self, query: str) -> list[float]:
         """Generate embedding for a single query"""
         try:
+            dims = self._dimension if self._is_openai_official else None
             embeddings = await self._http.embeddings(
                 model=self.model,
                 input=[query],
-                dimensions=self._dimension,
+                dimensions=dims,
             )
-            return embeddings[0] if embeddings else [0.0] * self._dimension
+            result = embeddings[0] if embeddings else [0.0] * self._dimension
+            if result and len(result) != self._dimension:
+                logger.warning(
+                    f"Query embedding dimension mismatch: expected {self._dimension}, "
+                    f"got {len(result)}"
+                )
+            return result
         except Exception as e:
             logger.error(f"OpenAI-compatible embedding query error: {e}")
             return [0.0] * self._dimension
