@@ -11,21 +11,18 @@ from app.api.v1.routers import (
 from app.common.exceptions import register_exception_handlers
 from app.common.logger import logger, setup_logger
 from app.core.settings import Settings, get_settings
-from app.utils.aiohttp_session import HttpSessionShared
 
 
 # 定义应用生命周期函数
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """应用生命周期函数，负责启动和关闭时的资源管理"""
 
-    await HttpSessionShared.ensure_session()  # 全局单例aiohttp session
     setup_logger(retention_days=30)  # 初始化日志配置
 
     logger.info("Application starting up...")
 
     yield
 
-    await HttpSessionShared.cleanup()  # 清理全局单例aiohttp session
     logger.info("Application shutting down...")
 
 

@@ -4,20 +4,12 @@ Rerank Model database models.
 
 import uuid
 from datetime import datetime
-from enum import StrEnum
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.base import Base
 from app.utils.datetime_utils import now_utc
-
-
-class RerankType(StrEnum):
-    """Rerank type enum"""
-
-    OPENAI_COMPATIBLE = "openai_compatible"  # Cohere/Jina 等兼容 /v1/rerank 端点
-    DASHSCOPE = "dashscope"  # 阿里云 DashScope 文本排序 API
 
 
 class RerankModel(Base):
@@ -31,8 +23,8 @@ class RerankModel(Base):
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default=RerankType.OPENAI_COMPATIBLE.value
+    provider: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="openai_compatible"
     )
 
     model_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -53,4 +45,6 @@ class RerankModel(Base):
     )
 
     def __repr__(self):
-        return f"<RerankModel(id={self.id}, name={self.name}, type={self.type})>"
+        return (
+            f"<RerankModel(id={self.id}, name={self.name}, provider={self.provider})>"
+        )

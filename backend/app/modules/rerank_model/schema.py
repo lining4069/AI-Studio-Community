@@ -6,14 +6,12 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.modules.rerank_model.models import RerankType
-
 
 class RerankModelBase(BaseModel):
     """Base schema for Rerank model"""
 
     name: str = Field(..., min_length=1, max_length=255)
-    type: RerankType = Field(default=RerankType.OPENAI_COMPATIBLE)
+    provider: str = Field(default="openai_compatible")
     model_name: str | None = Field(None, max_length=255)
     base_url: str | None = Field(None, max_length=500)
     api_key: str | None = Field(None)
@@ -33,7 +31,7 @@ class RerankModelUpdate(BaseModel):
     """Schema for updating Rerank model"""
 
     name: str | None = Field(None, min_length=1, max_length=255)
-    type: RerankType | None = None
+    provider: str | None = None
     model_name: str | None = Field(None, max_length=255)
     base_url: str | None = Field(None, max_length=500)
     api_key: str | None = Field(None, exclude=True)

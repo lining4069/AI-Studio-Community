@@ -384,7 +384,7 @@ class KnowledgeBaseService:
         llm_provider = None
         if request.llm_model_id:
             from app.modules.llm_model.repository import LlmModelRepository
-            from app.services.factory.model_factory import create_llm
+            from app.services.providers.model_factory import create_llm
 
             llm_repo = LlmModelRepository(self.doc_repo.db)
             llm_model = await llm_repo.get_by_id(request.llm_model_id, user_id)

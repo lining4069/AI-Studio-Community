@@ -12,20 +12,18 @@ from loguru import logger
 
 from app.modules.embedding_model.models import EmbeddingModel, EmbeddingType
 from app.modules.llm_model.models import LlmModel
-from app.modules.rerank_model.models import RerankModel, RerankType
-from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
-from app.services.providers.dashscope import (
-    DashScopeLLMProvider,
-    DashScopeRerankerProvider,
-)
-from app.services.providers.huggingface import HuggingFaceEmbeddingProvider
-from app.services.providers.openai_compatible import (
+from app.modules.rerank_model.models import RerankModel
+from app.utils.encrypt_utils import decrypt_api_key
+from app.utils.lru_cache import LruCache
+
+from .base import EmbeddingProvider, LLMProvider, RerankerProvider
+from .dashscope import DashScopeLLMProvider, DashScopeRerankerProvider
+from .huggingface import HuggingFaceEmbeddingProvider
+from .openai_compatible import (
     CohereRerankerProvider,
     OpenAICompatibleEmbeddingProvider,
     OpenAICompatibleLLMProvider,
 )
-from app.utils.encrypt_utils import decrypt_api_key
-from app.utils.lru_cache import LruCache
 
 # ============================================================================
 # LRU Caches for Model Instances
@@ -63,7 +61,9 @@ def _embedding_cache_key(model: EmbeddingModel) -> str:
 def _reranker_cache_key(model: RerankModel) -> str:
     """Generate cache key for Reranker model"""
     decrypted_key = decrypt_api_key(model.encrypted_api_key or "")
-    return f"rerank_{model.type}_{model.model_name}_{model.base_url}_{decrypted_key}"
+    return (
+        f"rerank_{model.provider}_{model.model_name}_{model.base_url}_{decrypted_key}"
+    )
 
 
 # ============================================================================
@@ -184,27 +184,27 @@ def create_reranker(model: RerankModel) -> RerankerProvider:
         logger.info(f"Using cached Reranker provider: {model.name}")
         return cached
 
-    logger.info(f"Creating new Reranker provider: {model.name} ({model.type})")
+    logger.info(f"Creating new Reranker provider: {model.name} ({model.provider})")
 
     # Get decrypted API key
     api_key = decrypt_api_key(model.encrypted_api_key or "")
 
     # Create provider based on type
-    if model.type == RerankType.DASHSCOPE:
+    if model.provider == "dashscope":
         provider = DashScopeRerankerProvider(
             api_key=api_key,
             model=model.model_name or "qwen3-rerank",
             base_url=model.base_url or "",
         )
-    elif model.type == RerankType.OPENAI_COMPATIBLE:
+    elif model.provider == "openai_compatible":
         provider = CohereRerankerProvider(
             api_key=api_key,
             base_url=model.base_url or "",
-            model=model.model_name,
+            model=model.model_name or "cohere-rerank",
             top_n=model.top_n,
         )
     else:
-        raise ValueError(f"Unsupported Reranker type: {model.type}")
+        raise ValueError(f"Unsupported Reranker provider: {model.provider}")
 
     reranker_cache.put(cache_key, provider)
     return provider

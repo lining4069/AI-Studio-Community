@@ -3,16 +3,16 @@ OpenAI-Compatible Provider Implementation.
 
 Implements providers for any OpenAI-compatible API endpoint.
 Supports standard OpenAI-compatible LLM, Embedding, and Cohere-style Reranker endpoints.
+All HTTP calls use httpx.AsyncClient for full control over the request/response lifecycle.
 """
 
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from loguru import logger
-from openai import AsyncOpenAI
 
 from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
-from app.utils.aiohttp_session import HttpSessionShared
+from app.utils.http_client import HttpClient
 
 # ============================================================================
 # OpenAI-Compatible LLM Provider
@@ -21,9 +21,9 @@ from app.utils.aiohttp_session import HttpSessionShared
 
 class OpenAICompatibleLLMProvider(LLMProvider):
     """
-    OpenAI-compatible LLM Provider using official OpenAI AsyncOpenAI.
+    OpenAI-compatible LLM Provider using httpx.AsyncClient.
 
-    Works with any OpenAI-compatible endpoint (vLLM, LocalAI, etc.)
+    Works with any OpenAI-compatible endpoint (vLLM, LocalAI, SiliconFlow, etc.)
     """
 
     def __init__(
@@ -45,11 +45,9 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         if not normalized_base_url.endswith("/v1"):
             normalized_base_url += "/v1"
 
-        self._client = AsyncOpenAI(
+        self._http = HttpClient(
             api_key=api_key,
             base_url=normalized_base_url,
-            temperature=temperature,
-            max_tokens=max_tokens,
         )
 
     @property
@@ -64,22 +62,23 @@ class OpenAICompatibleLLMProvider(LLMProvider):
     ) -> AsyncGenerator[str, None]:
         """Stream chat completions"""
         try:
-            request_kwargs = {
-                "model": self.model,
-                "messages": messages,
-                "stream": True,
-                "temperature": self.temperature,
-            }
-            if self.max_tokens:
-                request_kwargs["max_tokens"] = self.max_tokens
-            if tools:
-                request_kwargs["tools"] = tools
+            stream_result = await self._http.chat_completions(
+                model=self.model,
+                messages=messages,
+                stream=True,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                **kwargs,
+            )
 
-            stream = await self._client.chat.completions.create(**request_kwargs)
-
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+            async for chunk in stream_result:
+                choices = chunk.get("choices", [])
+                if choices:
+                    delta = choices[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        yield content
 
         except Exception as e:
             logger.error(f"OpenAI-compatible LLM streaming error: {e}")
@@ -93,21 +92,19 @@ class OpenAICompatibleLLMProvider(LLMProvider):
     ) -> str:
         """Non-streaming chat completion"""
         try:
-            request_kwargs = {
-                "model": self.model,
-                "messages": messages,
-                "stream": False,
-                "temperature": self.temperature,
-            }
-            if self.max_tokens:
-                request_kwargs["max_tokens"] = self.max_tokens
-            if tools:
-                request_kwargs["tools"] = tools
+            result = await self._http.chat_completions(
+                model=self.model,
+                messages=messages,
+                stream=False,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                **kwargs,
+            )
 
-            response = await self._client.chat.completions.create(**request_kwargs)
-
-            if response.choices and response.choices[0].message.content:
-                return response.choices[0].message.content
+            choices = result.get("choices", [])
+            if choices and choices[0].get("message", {}).get("content"):
+                return choices[0]["message"]["content"]
             return ""
 
         except Exception as e:
@@ -122,7 +119,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
 
 class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     """
-    OpenAI-compatible Embedding Provider using official OpenAI AsyncOpenAI.
+    OpenAI-compatible Embedding Provider using httpx.AsyncClient.
 
     Works with any OpenAI-compatible embedding endpoint.
     """
@@ -151,7 +148,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         else:
             base_url = "https://api.openai.com/v1"
 
-        self._client = AsyncOpenAI(
+        self._http = HttpClient(
             api_key=api_key,
             base_url=base_url,
         )
@@ -167,12 +164,12 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts"""
         try:
-            response = await self._client.embeddings.create(
+            embeddings = await self._http.embeddings(
                 model=self.model,
                 input=texts,
                 dimensions=self._dimension,
             )
-            return [item.embedding for item in response.data]
+            return embeddings
         except Exception as e:
             logger.error(f"OpenAI-compatible embedding error: {e}")
             return [[0.0] * self._dimension for _ in texts]
@@ -180,12 +177,12 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     async def aembed_query(self, query: str) -> list[float]:
         """Generate embedding for a single query"""
         try:
-            response = await self._client.embeddings.create(
+            embeddings = await self._http.embeddings(
                 model=self.model,
                 input=[query],
                 dimensions=self._dimension,
             )
-            return response.data[0].embedding
+            return embeddings[0] if embeddings else [0.0] * self._dimension
         except Exception as e:
             logger.error(f"OpenAI-compatible embedding query error: {e}")
             return [0.0] * self._dimension
@@ -198,10 +195,9 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
 
 class CohereRerankerProvider(RerankerProvider):
     """
-    Cohere-compatible Reranker Provider.
+    Cohere-compatible Reranker Provider using httpx.AsyncClient.
 
-    Works with any /v1/rerank endpoint (Cohere, Jina, vLLM, etc.)
-    Reference: PAI-RAG backend/rag/rerank/reranker.py
+    Works with any /v1/rerank endpoint (Cohere, Jina, SiliconFlow, vLLM, etc.)
     """
 
     def __init__(
@@ -227,6 +223,10 @@ class CohereRerankerProvider(RerankerProvider):
             else:
                 self.base_url = f"{base_url}/v1/rerank"
 
+        # Extract the base URL without /rerank for HttpClient
+        base = self.base_url.rsplit("/rerank", 1)[0]
+        self._http = HttpClient(api_key=api_key, base_url=base)
+
     @property
     def provider_name(self) -> str:
         return "openai_compatible"
@@ -238,77 +238,19 @@ class CohereRerankerProvider(RerankerProvider):
         top_n: int | None = None,
     ) -> list[dict[str, Any]]:
         """Rerank documents using compatible rerank API"""
-        import aiohttp
-
         if not documents:
             return []
 
         n = top_n or self.top_n or len(documents)
 
-        # Standard rerank API format
-        payload = {
-            "model": self.model,
-            "query": query,
-            "documents": documents,
-            "top_n": n,
-        }
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-
         try:
-            session = await HttpSessionShared.ensure_session()
-            async with session.post(
-                self.base_url,
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Rerank API error: {response.status} - {error_text}")
-                    return self._fallback_rerank(query, documents, n)
-
-                result = await response.json()
-
-                # Parse response - may be Cohere format or Jina format
-                if "results" in result:
-                    raw_results = result["results"]
-                elif "output" in result and "results" in result["output"]:
-                    raw_results = result["output"]["results"]
-                else:
-                    logger.error(f"Unexpected rerank response format: {result}")
-                    return self._fallback_rerank(query, documents, n)
-
-                # Transform to standard format
-                rerank_results = []
-                for item in raw_results:
-                    index = item.get("index", 0)
-                    score = item.get("relevance_score", item.get("score", 0.0))
-
-                    # Extract document text
-                    if "document" in item and isinstance(item["document"], dict):
-                        doc_text = item["document"].get("text", "")
-                    elif "text" in item:
-                        doc_text = item["text"]
-                    else:
-                        doc_text = (
-                            documents[index] if 0 <= index < len(documents) else ""
-                        )
-
-                    rerank_results.append(
-                        {
-                            "index": index,
-                            "score": score,
-                            "document": doc_text,
-                        }
-                    )
-
-                # Sort by score descending
-                rerank_results.sort(key=lambda x: x["score"], reverse=True)
-                return rerank_results
+            results = await self._http.rerank(
+                model=self.model,
+                query=query,
+                documents=documents,
+                top_n=n,
+            )
+            return results
 
         except Exception as e:
             logger.error(f"Rerank error: {e}")

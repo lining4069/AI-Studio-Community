@@ -26,7 +26,7 @@ from app.modules.agent.repository import (
 )
 from app.modules.agent.schema import ChatRequest, ToolCallResult
 from app.modules.llm_model.repository import LlmModelRepository
-from app.services.factory.model_factory import create_llm
+from app.services.providers.model_factory import create_llm
 
 
 class AgentService:

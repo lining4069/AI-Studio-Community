@@ -2,19 +2,23 @@
 DashScope Provider Implementation.
 
 Implements providers for DashScope (Alibaba Cloud) LLM, Embedding, and Reranker services.
+All HTTP calls use httpx.AsyncClient for full control.
 Reference: PAI-RAG backend/rag/rerank/dashscope_reranker.py
 """
 
 from collections.abc import AsyncGenerator
 from typing import Any
 
+import httpx
 from loguru import logger
-from openai import AsyncOpenAI
 
 from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
-from app.utils.aiohttp_session import HttpSessionShared
+from app.utils.http_client import HttpClient
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DASHSCOPE_RERANK_URL = (
+    "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+)
 
 # ============================================================================
 # DashScope LLM Provider
@@ -23,7 +27,7 @@ DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 class DashScopeLLMProvider(LLMProvider):
     """
-    DashScope LLM Provider using official OpenAI AsyncOpenAI.
+    DashScope LLM Provider using httpx.AsyncClient.
 
     Supports DashScope's Qwen models via OpenAI-compatible API.
     """
@@ -40,11 +44,9 @@ class DashScopeLLMProvider(LLMProvider):
         self.temperature = temperature
         self.max_tokens = max_tokens
 
-        self._client = AsyncOpenAI(
+        self._http = HttpClient(
             api_key=api_key,
             base_url=DASHSCOPE_BASE_URL,
-            temperature=temperature,
-            max_tokens=max_tokens,
         )
 
     @property
@@ -59,22 +61,23 @@ class DashScopeLLMProvider(LLMProvider):
     ) -> AsyncGenerator[str, None]:
         """Stream chat completions from DashScope"""
         try:
-            request_kwargs = {
-                "model": self.model,
-                "messages": messages,
-                "stream": True,
-                "temperature": self.temperature,
-            }
-            if self.max_tokens:
-                request_kwargs["max_tokens"] = self.max_tokens
-            if tools:
-                request_kwargs["tools"] = tools
+            stream_result = await self._http.chat_completions(
+                model=self.model,
+                messages=messages,
+                stream=True,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                **kwargs,
+            )
 
-            stream = await self._client.chat.completions.create(**request_kwargs)
-
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+            async for chunk in stream_result:
+                choices = chunk.get("choices", [])
+                if choices:
+                    delta = choices[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        yield content
 
         except Exception as e:
             logger.error(f"DashScope LLM streaming error: {e}")
@@ -88,21 +91,19 @@ class DashScopeLLMProvider(LLMProvider):
     ) -> str:
         """Non-streaming chat completion from DashScope"""
         try:
-            request_kwargs = {
-                "model": self.model,
-                "messages": messages,
-                "stream": False,
-                "temperature": self.temperature,
-            }
-            if self.max_tokens:
-                request_kwargs["max_tokens"] = self.max_tokens
-            if tools:
-                request_kwargs["tools"] = tools
+            result = await self._http.chat_completions(
+                model=self.model,
+                messages=messages,
+                stream=False,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                **kwargs,
+            )
 
-            response = await self._client.chat.completions.create(**request_kwargs)
-
-            if response.choices and response.choices[0].message.content:
-                return response.choices[0].message.content
+            choices = result.get("choices", [])
+            if choices and choices[0].get("message", {}).get("content"):
+                return choices[0]["message"]["content"]
             return ""
 
         except Exception as e:
@@ -117,7 +118,7 @@ class DashScopeLLMProvider(LLMProvider):
 
 class DashScopeEmbeddingProvider(EmbeddingProvider):
     """
-    DashScope Embedding Provider using official OpenAI AsyncOpenAI.
+    DashScope Embedding Provider using httpx.AsyncClient.
 
     Supports DashScope's text-embedding-v3 model.
     """
@@ -136,7 +137,7 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
         self._dimension = dimension or self.DEFAULT_DIMENSION
         self.batch_size = batch_size
 
-        self._client = AsyncOpenAI(
+        self._http = HttpClient(
             api_key=api_key,
             base_url=DASHSCOPE_BASE_URL,
         )
@@ -152,26 +153,25 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts"""
         try:
-            response = await self._client.embeddings.create(
+            embeddings = await self._http.embeddings(
                 model=self.model,
                 input=texts,
                 dimensions=self._dimension,
             )
-            return [item.embedding for item in response.data]
+            return embeddings
         except Exception as e:
             logger.error(f"DashScope embedding error: {e}")
-            # Return zero vectors on error
             return [[0.0] * self._dimension for _ in texts]
 
     async def aembed_query(self, query: str) -> list[float]:
         """Generate embedding for a single query"""
         try:
-            response = await self._client.embeddings.create(
+            embeddings = await self._http.embeddings(
                 model=self.model,
                 input=[query],
                 dimensions=self._dimension,
             )
-            return response.data[0].embedding
+            return embeddings[0] if embeddings else [0.0] * self._dimension
         except Exception as e:
             logger.error(f"DashScope embedding query error: {e}")
             return [0.0] * self._dimension
@@ -184,7 +184,7 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
 
 class DashScopeRerankerProvider(RerankerProvider):
     """
-    DashScope Reranker Provider.
+    DashScope Reranker Provider using httpx.AsyncClient.
 
     Implements reranking using DashScope text-rerank API.
     Reference: PAI-RAG backend/rag/rerank/dashscope_reranker.py
@@ -203,7 +203,7 @@ class DashScopeRerankerProvider(RerankerProvider):
 
         # Set base URL with proper endpoint format
         if not base_url:
-            self.base_url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+            self.base_url = DASHSCOPE_RERANK_URL
         else:
             base_url = base_url.rstrip("/")
             if base_url.endswith("/text-rerank/text-rerank"):
@@ -212,6 +212,26 @@ class DashScopeRerankerProvider(RerankerProvider):
                 self.base_url = f"{base_url}/text-rerank"
             else:
                 self.base_url = f"{base_url}/text-rerank/text-rerank"
+
+        self._client: httpx.AsyncClient | None = None
+
+    async def _ensure_client(self) -> httpx.AsyncClient:
+        """Get or create httpx client for DashScope rerank API."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                },
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     @property
     def provider_name(self) -> str:
@@ -224,8 +244,6 @@ class DashScopeRerankerProvider(RerankerProvider):
         top_n: int | None = None,
     ) -> list[dict[str, Any]]:
         """Rerank documents using DashScope API"""
-        import aiohttp
-
         if not documents:
             return []
 
@@ -244,64 +262,50 @@ class DashScopeRerankerProvider(RerankerProvider):
             },
         }
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-
         try:
-            session = await HttpSessionShared.ensure_session()
-            async with session.post(
-                self.base_url,
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(
-                        f"DashScope rerank API error: {response.status} - {error_text}"
-                    )
-                    return self._fallback_rerank(query, documents, n)
+            client = await self._ensure_client()
+            response = await client.post(self.base_url, json=payload)
 
-                result = await response.json()
+            if response.status_code != 200:
+                logger.error(
+                    f"DashScope rerank API error: {response.status_code} - {response.text}"
+                )
+                return self._fallback_rerank(query, documents, n)
 
-                # Parse DashScope response format
-                if "output" in result and "results" in result["output"]:
-                    raw_results = result["output"]["results"]
-                elif "results" in result:
-                    raw_results = result["results"]
+            result = response.json()
+
+            # Parse DashScope response format
+            if "output" in result and "results" in result["output"]:
+                raw_results = result["output"]["results"]
+            elif "results" in result:
+                raw_results = result["results"]
+            else:
+                logger.error(f"Unexpected DashScope rerank response format: {result}")
+                return self._fallback_rerank(query, documents, n)
+
+            # Transform to standard format
+            rerank_results = []
+            for item in raw_results:
+                index = item.get("index", 0)
+                score = item.get("relevance_score", 0.0)
+
+                # Extract document text
+                if "document" in item and isinstance(item["document"], dict):
+                    doc_text = item["document"].get("text", "")
                 else:
-                    logger.error(
-                        f"Unexpected DashScope rerank response format: {result}"
-                    )
-                    return self._fallback_rerank(query, documents, n)
+                    doc_text = documents[index] if 0 <= index < len(documents) else ""
 
-                # Transform to standard format
-                rerank_results = []
-                for item in raw_results:
-                    index = item.get("index", 0)
-                    score = item.get("relevance_score", 0.0)
+                rerank_results.append(
+                    {
+                        "index": index,
+                        "score": score,
+                        "document": doc_text,
+                    }
+                )
 
-                    # Extract document text
-                    if "document" in item and isinstance(item["document"], dict):
-                        doc_text = item["document"].get("text", "")
-                    else:
-                        doc_text = (
-                            documents[index] if 0 <= index < len(documents) else ""
-                        )
-
-                    rerank_results.append(
-                        {
-                            "index": index,
-                            "score": score,
-                            "document": doc_text,
-                        }
-                    )
-
-                # Sort by score descending
-                rerank_results.sort(key=lambda x: x["score"], reverse=True)
-                return rerank_results[:n]
+            # Sort by score descending
+            rerank_results.sort(key=lambda x: x["score"], reverse=True)
+            return rerank_results[:n]
 
         except Exception as e:
             logger.error(f"DashScope rerank error: {e}")
@@ -319,7 +323,6 @@ class DashScopeRerankerProvider(RerankerProvider):
 
         for i, doc in enumerate(documents):
             doc_words = set(doc.lower().split())
-            # Simple Jaccard-like similarity
             if query_words:
                 score = len(query_words & doc_words) / len(query_words)
             else:

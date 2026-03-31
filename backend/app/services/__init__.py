@@ -1,5 +1,6 @@
-# Services Module
-from app.services.factory.model_factory import (
+# Model Factory
+from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
+from app.services.providers.model_factory import (
     create_embedding,
     create_llm,
     create_reranker,
@@ -15,4 +16,7 @@ __all__ = [
     "llm_cache",
     "embedding_cache",
     "reranker_cache",
+    "LLMProvider",
+    "EmbeddingProvider",
+    "RerankerProvider",
 ]

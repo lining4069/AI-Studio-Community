@@ -10,8 +10,8 @@ from app.dependencies.infras import get_db
 from app.modules.embedding_model.repository import EmbeddingModelRepository
 from app.modules.knowledge_base.models import KbDocument
 from app.modules.rerank_model.repository import RerankModelRepository
-from app.services.factory.model_factory import create_embedding, create_reranker
 from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
+from app.services.providers.model_factory import create_embedding, create_reranker
 from app.services.rag.rag_service import RAGService
 from app.services.vectordb.base import VectorDBProvider
 from app.services.vectordb.chroma_service import ChromaDBProvider
