@@ -8,7 +8,7 @@ import uuid
 from loguru import logger
 
 from app.common.exceptions import NotFoundException, ValidationException
-from app.core.settings import get_settings
+from app.core.settings import BASE_DIR
 from app.modules.knowledge_base.models import KbChunk, KbDocument, KbFile, RetrievalMode
 from app.modules.knowledge_base.repository import (
     KbChunkRepository,
@@ -248,11 +248,8 @@ class KnowledgeBaseService:
         kb = await self.get_kb(file.kb_id, user_id)
 
         # Resolve relative file path to absolute path
-        # file.file_path is stored as /storage/knowledge/... (relative to BUSINESS_FILES_BASE_DIR)
-        settings = get_settings()
-        absolute_file_path = str(
-            settings.BUSINESS_FILES_BASE_DIR / file.file_path.lstrip("/")
-        )
+        # file.file_path is stored as /storage/knowledge/... (relative to BASE_DIR)
+        absolute_file_path = str(BASE_DIR / file.file_path.lstrip("/"))
 
         # Get or create RAG service
         rag_service = await get_rag_service(kb)
