@@ -84,10 +84,10 @@ async def get_rag_service(
         vector_provider = _build_vector_provider(embedding_provider)
 
         return RAGService(
+            vector_provider=vector_provider,
             embedding_provider=embedding_provider,
             reranker_provider=reranker_provider,
             llm_provider=llm_provider,
-            vector_provider=vector_provider,
         )
     finally:
         await session.close()

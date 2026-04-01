@@ -330,6 +330,21 @@ async def index_file(
 # ============================================================================
 
 
+@router.post("/retrieve", response_model=APIResponse[RetrievalResponse])
+async def retrieve(
+    request: RetrievalRequest,
+    current_user: CurrentUser,
+    service: KBServiceDep,
+):
+    """
+    Pure retrieval endpoint.
+
+    Retrieve relevant chunks from knowledge base(s) without LLM generation.
+    """
+    response = await service.retrieve(current_user.id, request)
+    return APIResponse(data=response)
+
+
 @router.post("/rag", response_model=APIResponse[RAGResponse])
 async def rag(
     request: RAGRequest,
@@ -343,19 +358,4 @@ async def rag(
     If llm_model_id is not provided: pure retrieval of relevant chunks
     """
     response = await service.rag(current_user.id, request)
-    return APIResponse(data=response)
-
-
-@router.post("/retrieve", response_model=APIResponse[RetrievalResponse])
-async def retrieve(
-    request: RetrievalRequest,
-    current_user: CurrentUser,
-    service: KBServiceDep,
-):
-    """
-    Pure retrieval endpoint.
-
-    Retrieve relevant chunks from knowledge base(s) without LLM generation.
-    """
-    response = await service.retrieve(current_user.id, request)
     return APIResponse(data=response)

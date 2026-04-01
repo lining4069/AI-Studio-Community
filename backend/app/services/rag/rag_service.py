@@ -34,10 +34,10 @@ class RAGService:
 
     def __init__(
         self,
+        vector_provider: VectorDBProvider,
         embedding_provider: EmbeddingProvider,
         reranker_provider: RerankerProvider | None = None,
         llm_provider: LLMProvider | None = None,
-        vector_provider: VectorDBProvider | None = None,
     ):
         """
         Initialize RAG Service.
@@ -197,6 +197,60 @@ class RAGService:
     # Retrieval Pipeline
     # =========================================================================
 
+    def _sparse_search(
+        self,
+        vector_store: VectorStore,
+        query: str,
+        k: int,
+        filter_metadata: dict | None,
+    ) -> list[tuple[str, str, float]]:
+        """Perform sparse/BM25 search"""
+        # NOTE: sparse search is chromadb-specific; other backends fall back to dense
+        try:
+            return vector_store.collection.query_sparse(
+                query_texts=[query],
+                n_results=k,
+                where_filter=filter_metadata,
+            )
+        except Exception as e:
+            logger.warning(f"Sparse search not supported, falling back to dense: {e}")
+            return vector_store.similarity_search(query, k, filter_metadata)
+
+    async def _rerank(
+        self,
+        query: str,
+        results: list[RetrievalResult],
+        top_k: int,
+    ) -> list[RetrievalResult]:
+        """Rerank results using cross-encoder"""
+        if not self.reranker_provider:
+            return results[:top_k]
+
+        try:
+            documents = [r.content for r in results]
+            reranked = await self.reranker_provider.arerank(
+                query=query,
+                documents=documents,
+                top_n=top_k,
+            )
+
+            # Map back to results
+            reranked_results = []
+
+            for item in reranked:
+                doc_text = item.get("document", "")
+                # Find original result by content match
+                for r in results:
+                    if r.content == doc_text:
+                        r.score = item.get("score", r.score)
+                        reranked_results.append(r)
+                        break
+
+            return reranked_results[:top_k]
+        except Exception as e:
+            logger.warning(f"Reranking failed: {e}")
+            return results[:top_k]
+
     async def retrieve(
         self,
         query: str,
@@ -272,63 +326,16 @@ class RAGService:
 
         return results
 
-    def _sparse_search(
-        self,
-        vector_store: VectorStore,
-        query: str,
-        k: int,
-        filter_metadata: dict | None,
-    ) -> list[tuple[str, str, float]]:
-        """Perform sparse/BM25 search"""
-        # NOTE: sparse search is chromadb-specific; other backends fall back to dense
-        try:
-            return vector_store.collection.query_sparse(
-                query_texts=[query],
-                n_results=k,
-                where_filter=filter_metadata,
-            )
-        except Exception as e:
-            logger.warning(f"Sparse search not supported, falling back to dense: {e}")
-            return vector_store.similarity_search(query, k, filter_metadata)
-
-    async def _rerank(
-        self,
-        query: str,
-        results: list[RetrievalResult],
-        top_k: int,
-    ) -> list[RetrievalResult]:
-        """Rerank results using cross-encoder"""
-        if not self.reranker_provider:
-            return results[:top_k]
-
-        try:
-            documents = [r.content for r in results]
-            reranked = await self.reranker_provider.arerank(
-                query=query,
-                documents=documents,
-                top_n=top_k,
-            )
-
-            # Map back to results
-            reranked_results = []
-
-            for item in reranked:
-                doc_text = item.get("document", "")
-                # Find original result by content match
-                for r in results:
-                    if r.content == doc_text:
-                        r.score = item.get("score", r.score)
-                        reranked_results.append(r)
-                        break
-
-            return reranked_results[:top_k]
-        except Exception as e:
-            logger.warning(f"Reranking failed: {e}")
-            return results[:top_k]
-
     # =========================================================================
     # LLM Generation
     # =========================================================================
+
+    _default_prompt = """
+        你是一个问答助手。请根据以下参考资料回答用户的问题。
+        参考资料:{context}
+        用户问题: {question}
+        请基于参考资料给出准确、详细的回答。如果参考资料中没有相关信息，请说明无法回答。
+    """
 
     async def generate(
         self,
@@ -385,13 +392,6 @@ class RAGService:
         # Generate
         response = await self.llm_provider.achat(messages)
         return response
-
-    _default_prompt = """
-        你是一个问答助手。请根据以下参考资料回答用户的问题。
-        参考资料:{context}
-        用户问题: {question}
-        请基于参考资料给出准确、详细的回答。如果参考资料中没有相关信息，请说明无法回答。
-    """
 
     # =========================================================================
     # Full RAG Pipeline
