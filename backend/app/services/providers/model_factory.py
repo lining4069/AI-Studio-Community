@@ -17,7 +17,6 @@ from app.utils.encrypt_utils import decrypt_api_key
 from app.utils.lru_cache import LruCache
 
 from .base import EmbeddingProvider, LLMProvider, RerankerProvider
-from .dashscope import DashScopeLLMProvider, DashScopeRerankerProvider
 from .huggingface import HuggingFaceEmbeddingProvider
 from .openai_compatible import (
     CohereRerankerProvider,
@@ -94,14 +93,7 @@ def create_llm(model: LlmModel) -> LLMProvider:
     api_key = decrypt_api_key(model.encrypted_api_key or "")
 
     # Create provider based on type
-    if model.provider == "dashscope":
-        provider = DashScopeLLMProvider(
-            api_key=api_key,
-            model=model.model_name,
-            temperature=model.temperature,
-            max_tokens=model.max_tokens,
-        )
-    elif model.provider == "openai_compatible":
+    if model.provider == "openai_compatible":
         provider = OpenAICompatibleLLMProvider(
             api_key=api_key,
             base_url=model.base_url or "",
@@ -191,13 +183,7 @@ def create_reranker(model: RerankModel) -> RerankerProvider:
     api_key = decrypt_api_key(model.encrypted_api_key or "")
 
     # Create provider based on type
-    if model.provider == "dashscope":
-        provider = DashScopeRerankerProvider(
-            api_key=api_key,
-            model=model.model_name or "qwen3-rerank",
-            base_url=model.base_url or "",
-        )
-    elif model.provider == "openai_compatible":
+    if model.provider == "openai_compatible":
         provider = CohereRerankerProvider(
             api_key=api_key,
             base_url=model.base_url or "",
