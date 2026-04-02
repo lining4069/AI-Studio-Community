@@ -5,6 +5,8 @@ Provides factory function to create RAGService instances with proper
 embedding/reranker/vector providers based on KB model configuration.
 """
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.settings import get_settings
 from app.dependencies.infras import get_db
 from app.modules.embedding_model.repository import EmbeddingModelRepository
@@ -15,6 +17,12 @@ from app.services.providers.model_factory import create_embedding, create_rerank
 from app.services.rag.rag_service import RAGService
 from app.services.vectordb.base import VectorDBProvider
 from app.services.vectordb.chroma_service import ChromaDBProvider
+from app.services.rag.stores.base import DenseStore
+from app.services.rag.stores.chroma_dense import ChromaDenseStore
+from app.services.rag.stores.pg_dense import PGDenseStore
+from app.services.rag.stores.pg_sparse import PGSparseStore
+from app.services.rag.index_service import RAGIndexService
+from app.services.rag.retrieval_service import RAGRetrievalService
 
 
 def _build_vector_provider(
@@ -91,3 +99,91 @@ async def get_rag_service(
         )
     finally:
         await session.close()
+
+
+async def create_rag_index_service(
+    kb: KbDocument,
+    embedding_provider: EmbeddingProvider,
+    db_session: AsyncSession,
+    vector_db_type: str = "chromadb",  # "chromadb" | "postgresql"
+) -> RAGIndexService:
+    """
+    创建 RAG 索引服务
+
+    Args:
+        kb: 知识库配置
+        embedding_provider: 嵌入提供者
+        db_session: 数据库会话
+        vector_db_type: 向量数据库类型，"chromadb" 或 "postgresql"
+
+    Returns:
+        RAGIndexService 实例
+    """
+    if vector_db_type == "chromadb":
+        settings = get_settings()
+        dense_store: DenseStore = ChromaDenseStore(
+            embedding_provider=embedding_provider,
+            persist_directory=str(settings.CHROMA_PERSIST_DIR),
+            collection_name=kb.collection_name,
+            user_id=kb.user_id,
+        )
+    else:  # postgresql
+        dense_store = PGDenseStore(
+            db_session=db_session,
+            embedding_provider=embedding_provider,
+        )
+
+    sparse_store = PGSparseStore(db_session=db_session)
+
+    return RAGIndexService(
+        dense_store=dense_store,
+        sparse_store=sparse_store,
+        embedding_provider=embedding_provider,
+    )
+
+
+async def create_rag_retrieval_service(
+    kb: KbDocument,
+    embedding_provider: EmbeddingProvider,
+    db_session: AsyncSession,
+    reranker_provider: RerankerProvider | None = None,
+    llm_provider: LLMProvider | None = None,
+    vector_db_type: str = "chromadb",
+) -> RAGRetrievalService:
+    """
+    创建 RAG 检索服务
+
+    Args:
+        kb: 知识库配置
+        embedding_provider: 嵌入提供者
+        db_session: 数据库会话
+        reranker_provider: 重排提供者
+        llm_provider: LLM 提供者
+        vector_db_type: 向量数据库类型
+
+    Returns:
+        RAGRetrievalService 实例
+    """
+    if vector_db_type == "chromadb":
+        settings = get_settings()
+        dense_store: DenseStore = ChromaDenseStore(
+            embedding_provider=embedding_provider,
+            persist_directory=str(settings.CHROMA_PERSIST_DIR),
+            collection_name=kb.collection_name,
+            user_id=kb.user_id,
+        )
+    else:
+        dense_store = PGDenseStore(
+            db_session=db_session,
+            embedding_provider=embedding_provider,
+        )
+
+    sparse_store = PGSparseStore(db_session=db_session)
+
+    return RAGRetrievalService(
+        dense_store=dense_store,
+        sparse_store=sparse_store,
+        embedding_provider=embedding_provider,
+        reranker_provider=reranker_provider,
+        llm_provider=llm_provider,
+    )
