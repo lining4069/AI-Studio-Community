@@ -84,9 +84,6 @@ class PGSparseStore(SparseStore):
         metadata_filter: dict[str, Any] | None = None,
     ) -> list[tuple[DocumentUnit, float]]:
         """检索匹配的文档"""
-        # 对查询进行分词
-        query_tokens = self._tokenize(query)
-
         retrieve_sql = f"""
             SELECT id, document_id, kb_id, file_id, chunk_index, content, metadata,
                    ts_rank(to_tsvector('simple', tokens), plainto_tsquery('simple', :query)) AS score
@@ -95,7 +92,7 @@ class PGSparseStore(SparseStore):
         """
 
         params: dict[str, Any] = {
-            "query": query_tokens,
+            "query": query,
             "top_k": top_k,
         }
 
