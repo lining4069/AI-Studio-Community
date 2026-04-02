@@ -101,6 +101,28 @@ async def get_rag_service(
         await session.close()
 
 
+def _build_dense_store(
+    kb: KbDocument,
+    embedding_provider: EmbeddingProvider,
+    db_session: AsyncSession,
+    vector_db_type: str,
+) -> DenseStore:
+    """构建稠密向量存储"""
+    if vector_db_type == "chromadb":
+        settings = get_settings()
+        return ChromaDenseStore(
+            embedding_provider=embedding_provider,
+            persist_directory=str(settings.CHROMA_PERSIST_DIR),
+            collection_name=kb.collection_name,
+            user_id=kb.user_id,
+        )
+    else:  # postgresql
+        return PGDenseStore(
+            db_session=db_session,
+            embedding_provider=embedding_provider,
+        )
+
+
 async def create_rag_index_service(
     kb: KbDocument,
     embedding_provider: EmbeddingProvider,
@@ -119,20 +141,7 @@ async def create_rag_index_service(
     Returns:
         RAGIndexService 实例
     """
-    if vector_db_type == "chromadb":
-        settings = get_settings()
-        dense_store: DenseStore = ChromaDenseStore(
-            embedding_provider=embedding_provider,
-            persist_directory=str(settings.CHROMA_PERSIST_DIR),
-            collection_name=kb.collection_name,
-            user_id=kb.user_id,
-        )
-    else:  # postgresql
-        dense_store = PGDenseStore(
-            db_session=db_session,
-            embedding_provider=embedding_provider,
-        )
-
+    dense_store = _build_dense_store(kb, embedding_provider, db_session, vector_db_type)
     sparse_store = PGSparseStore(db_session=db_session)
 
     return RAGIndexService(
@@ -164,20 +173,7 @@ async def create_rag_retrieval_service(
     Returns:
         RAGRetrievalService 实例
     """
-    if vector_db_type == "chromadb":
-        settings = get_settings()
-        dense_store: DenseStore = ChromaDenseStore(
-            embedding_provider=embedding_provider,
-            persist_directory=str(settings.CHROMA_PERSIST_DIR),
-            collection_name=kb.collection_name,
-            user_id=kb.user_id,
-        )
-    else:
-        dense_store = PGDenseStore(
-            db_session=db_session,
-            embedding_provider=embedding_provider,
-        )
-
+    dense_store = _build_dense_store(kb, embedding_provider, db_session, vector_db_type)
     sparse_store = PGSparseStore(db_session=db_session)
 
     return RAGRetrievalService(
