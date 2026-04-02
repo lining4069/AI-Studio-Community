@@ -34,6 +34,8 @@ class TextSplitter:
             raise ValueError("chunk_size must be positive")
         if chunk_overlap < 0:
             raise ValueError("chunk_overlap must be non-negative")
+        if chunk_overlap > chunk_size:
+            raise ValueError("chunk_overlap must be <= chunk_size")
         if mode not in ("recursive", "markdown"):
             raise ValueError("mode must be 'recursive' or 'markdown'")
 
