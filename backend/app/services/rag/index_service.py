@@ -4,6 +4,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from app.services.providers.base import EmbeddingProvider
 from app.services.rag.document_loader import DocumentLoader
 from app.services.rag.stores.base import DenseStore, DocumentUnit, SparseStore
@@ -113,5 +115,6 @@ class RAGIndexService:
         """
         deleted_dense = self.dense_store.delete_by_file_id(file_id)
         deleted_sparse = self.sparse_store.delete_by_file_id(file_id)
-        # 返回任一结果（理论上两者应该相等）
-        return deleted_dense
+        if deleted_dense != deleted_sparse:
+            logger.warning(f"Delete mismatch: dense={deleted_dense}, sparse={deleted_sparse}")
+        return max(deleted_dense, deleted_sparse)
