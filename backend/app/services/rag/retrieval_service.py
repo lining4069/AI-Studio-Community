@@ -41,7 +41,7 @@ class RAGRetrievalService:
     # Query Understanding
     # ===================================================================
 
-    def _expand_query(self, query: str, n: int = 1) -> list[str]:
+    async def _expand_query(self, query: str, n: int = 1) -> list[str]:
         """
         查询扩展
 
@@ -65,7 +65,7 @@ class RAGRetrievalService:
 
         原查询：{query}"""
 
-        response = self.llm_provider.achat([
+        response = await self.llm_provider.achat([
             {"role": "user", "content": prompt}
         ])
 
@@ -180,7 +180,7 @@ class RAGRetrievalService:
             DocumentUnit 列表
         """
         # 1. Query Understanding
-        queries = self._expand_query(query, n=n_queries)
+        queries = await self._expand_query(query, n=n_queries)
 
         all_fused_results: list[tuple[DocumentUnit, float]] = []
 
@@ -372,8 +372,7 @@ class RAGRetrievalService:
             )
         else:
             answer = "\n\n".join(
-                [f"[Score: {doc.metadata.get('score', 0.0):.3f}] {doc.content[:200]}..."
-                 for doc in documents]
+                [f"{doc.content[:200]}..." for doc in documents]
             )
 
         return answer, documents, sources
