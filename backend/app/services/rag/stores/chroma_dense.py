@@ -5,6 +5,7 @@ from typing import Any
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
+from chromadb.errors import NotFoundError
 
 from app.services.providers.base import EmbeddingProvider
 from app.services.rag.stores.base import DenseStore, DocumentUnit
@@ -72,6 +73,10 @@ class ChromaDenseStore(DenseStore):
             where=metadata_filter,
         )
 
+        # Handle empty results
+        if not results["ids"] or not results["ids"][0]:
+            return []
+
         doc_units = []
         for i, (doc_id, text, metadata, distance) in enumerate(
             zip(
@@ -112,5 +117,5 @@ class ChromaDenseStore(DenseStore):
             ids = results["ids"]
             self._collection.delete(ids=ids)
             return len(ids)
-        except Exception:
+        except NotFoundError:
             return 0
