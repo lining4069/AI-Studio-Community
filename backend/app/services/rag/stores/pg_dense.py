@@ -1,5 +1,6 @@
 """PostgreSQL + pgvector 稠密向量存储实现"""
 
+import re
 from typing import Any
 
 from sqlalchemy import text
@@ -29,17 +30,6 @@ class PGDenseStore(DenseStore):
             (id, document_id, kb_id, file_id, chunk_index, content, embedding, metadata)
             VALUES
             (:id, :document_id, :kb_id, :file_id, :chunk_index, :content, :embedding, :metadata::jsonb)
-        """
-
-    def _build_retrieve_sql(self) -> str:
-        """构建检索 SQL（余弦相似度）"""
-        return f"""
-            SELECT id, document_id, kb_id, file_id, chunk_index, content, metadata,
-                   1 - (embedding <=> :embedding) AS score
-            FROM {self.table_name}
-            WHERE kb_id = :kb_id
-            ORDER BY embedding <=> :embedding
-            LIMIT :top_k
         """
 
     def _build_delete_by_doc_ids_sql(self) -> str:
@@ -99,8 +89,11 @@ class PGDenseStore(DenseStore):
         where_clauses = []
         if metadata_filter:
             for key, value in metadata_filter.items():
-                where_clauses.append(f"metadata->>:key = :{key}")
-                params[key] = str(value)
+                safe_key = re.sub(r'[^a-zA-Z0-9_]', '', key)
+                if not safe_key:
+                    continue  # skip invalid keys
+                where_clauses.append(f"metadata->>:{safe_key} = :{safe_key}")
+                params[safe_key] = str(value)
 
         if where_clauses:
             retrieve_sql += " WHERE " + " AND ".join(where_clauses)
