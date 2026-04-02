@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DocumentUnit(BaseModel):
@@ -13,7 +13,7 @@ class DocumentUnit(BaseModel):
     file_id: str
     chunk_index: int
     content: str              # 原始文本
-    metadata: dict = {}       # 额外元数据
+    metadata: dict = Field(default_factory=dict)  # 额外元数据
 
 
 class DenseStore(ABC):
