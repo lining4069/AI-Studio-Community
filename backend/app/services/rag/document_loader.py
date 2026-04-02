@@ -1,7 +1,6 @@
 """Document Loader — 支持多种文件类型加载"""
 
 from pathlib import Path
-from typing import Any
 
 from langchain_community.document_loaders import (
     CSVLoader,
@@ -18,16 +17,16 @@ class DocumentLoader:
     文档加载器，支持多种文件类型
 
     支持类型：txt, md, pdf, docx, csv, jsonl
-    使用注册表模式，按文件扩展名路由到对应加载器
+    使用 loader 工厂模式，按文件扩展名路由到对应加载器
     """
 
-    _LOADER_REGISTRY: dict[str, Any] = {
-        ".txt": TextLoader,
-        ".md": TextLoader,
-        ".pdf": PyPDFLoader,
-        ".docx": Docx2txtLoader,
-        ".csv": CSVLoader,
-        ".jsonl": JSONLoader,
+    _LOADER_FACTORIES: dict[str, callable] = {
+        ".txt": lambda path, enc: TextLoader(path, encoding=enc),
+        ".md": lambda path, enc: TextLoader(path, encoding=enc),
+        ".pdf": lambda path, enc: PyPDFLoader(path),
+        ".docx": lambda path, enc: Docx2txtLoader(path),
+        ".csv": lambda path, enc: CSVLoader(path, encoding=enc),
+        ".jsonl": lambda path, enc: JSONLoader(path, jq_schema=".", json_lines=True),
     }
 
     def load(
@@ -44,20 +43,16 @@ class DocumentLoader:
             LangChain Document 列表
         """
         path = Path(file_path)
-        ext = path.suffix.lower()
 
-        loader_cls = self._LOADER_REGISTRY.get(ext)
-        if not loader_cls:
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+
+        ext = path.suffix.lower()
+        factory = self._LOADER_FACTORIES.get(ext)
+        if not factory:
             raise ValueError(f"Unsupported file type: {ext}")
 
-        # CSVLoader 和 JSONLLoader 需要特殊处理
-        if ext == ".csv":
-            loader = CSVLoader(file_path=str(path), encoding=encoding)
-        elif ext == ".jsonl":
-            loader = JSONLoader(file_path=str(path), jq_schema=".", json_lines=True)
-        else:
-            loader = loader_cls(str(path), encoding=encoding)
-
+        loader = factory(str(path), encoding)
         return loader.load()
 
     def load_with_metadata(
