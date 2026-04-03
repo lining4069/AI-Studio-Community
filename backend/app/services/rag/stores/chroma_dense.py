@@ -47,7 +47,6 @@ class ChromaDenseStore(DenseStore):
             {
                 "kb_id": doc.kb_id,
                 "file_id": doc.file_id,
-                "chunk_index": doc.chunk_index,
                 **doc.metadata,
             }
             for doc in docs
@@ -93,7 +92,6 @@ class ChromaDenseStore(DenseStore):
                 document_id=doc_id,
                 kb_id=metadata.get("kb_id", ""),
                 file_id=metadata.get("file_id", ""),
-                chunk_index=metadata.get("chunk_index", 0),
                 content=text or "",
                 metadata=metadata,
             )

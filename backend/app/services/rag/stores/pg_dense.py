@@ -31,9 +31,9 @@ class PGDenseStore(DenseStore):
 
         insert_sql = text(f"""
             INSERT INTO {self.table_name}
-            (id, document_id, kb_id, file_id, chunk_index, content, embedding, metadata)
+            (id, document_id, kb_id, file_id, content, embedding, metadata)
             VALUES
-            (:id, :document_id, :kb_id, :file_id, :chunk_index, :content, :embedding, :metadata)
+            (:id, :document_id, :kb_id, :file_id, :content, :embedding, :metadata)
         """)
 
         payload = []
@@ -44,7 +44,6 @@ class PGDenseStore(DenseStore):
                     "document_id": doc.document_id,
                     "kb_id": doc.kb_id,
                     "file_id": doc.file_id,
-                    "chunk_index": doc.chunk_index,
                     "content": doc.content,
                     "embedding": embedding,
                     "metadata": doc.metadata,
@@ -65,7 +64,7 @@ class PGDenseStore(DenseStore):
     ) -> list[tuple[DocumentUnit, float]]:
 
         base_sql = f"""
-        SELECT id, document_id, kb_id, file_id, chunk_index, content, metadata,
+        SELECT id, document_id, kb_id, file_id, content, metadata,
                1 - (embedding <=> :embedding) AS score
         FROM {self.table_name}
         """
@@ -103,7 +102,6 @@ class PGDenseStore(DenseStore):
                     document_id=row.document_id,
                     kb_id=row.kb_id,
                     file_id=row.file_id,
-                    chunk_index=row.chunk_index,
                     content=row.content,
                     metadata=row.metadata or {},
                 ),

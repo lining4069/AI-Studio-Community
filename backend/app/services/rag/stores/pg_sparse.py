@@ -41,9 +41,9 @@ class PGSparseStore(SparseStore):
 
         insert_sql = text(f"""
             INSERT INTO {self.table_name}
-            (id, document_id, kb_id, file_id, chunk_index, content, tokens, metadata, tsv)
+            (id, document_id, kb_id, file_id, content, tokens, metadata, tsv)
             VALUES
-            (:id, :document_id, :kb_id, :file_id, :chunk_index, :content, :tokens, :metadata, to_tsvector('simple', :tokens))
+            (:id, :document_id, :kb_id, :file_id, :content, :tokens, :metadata, to_tsvector('simple', :tokens))
         """)
 
         payload = []
@@ -55,7 +55,6 @@ class PGSparseStore(SparseStore):
                     "document_id": doc.document_id,
                     "kb_id": doc.kb_id,
                     "file_id": doc.file_id,
-                    "chunk_index": doc.chunk_index,
                     "content": doc.content,
                     "tokens": tokens,
                     "metadata": doc.metadata,
@@ -82,7 +81,7 @@ class PGSparseStore(SparseStore):
         WITH q AS (
             SELECT plainto_tsquery('simple', :query) AS query
         )
-        SELECT id, document_id, kb_id, file_id, chunk_index, content, metadata,
+        SELECT id, document_id, kb_id, file_id, content, metadata,
                ts_rank(tsv, q.query, 32) AS score
         FROM {self.table_name}, q
         WHERE tsv @@ q.query
@@ -116,7 +115,6 @@ class PGSparseStore(SparseStore):
                     document_id=row.document_id,
                     kb_id=row.kb_id,
                     file_id=row.file_id,
-                    chunk_index=row.chunk_index,
                     content=row.content,
                     metadata=row.metadata or {},
                 ),

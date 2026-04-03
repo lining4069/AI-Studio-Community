@@ -12,7 +12,6 @@ class DocumentUnit(BaseModel):
     document_id: str  # 外部生成的 UUID
     kb_id: str
     file_id: str
-    chunk_index: int
     content: str  # 原始文本
     metadata: dict = Field(default_factory=dict)  # 额外元数据
 

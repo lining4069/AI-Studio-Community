@@ -85,7 +85,6 @@ class RAGIndexService:
                 document_id=document_ids[i],
                 kb_id=kb_id,
                 file_id=file_id,
-                chunk_index=i,
                 content=chunk.page_content,
                 metadata=chunk.metadata,
             )
