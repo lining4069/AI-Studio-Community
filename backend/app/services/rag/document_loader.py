@@ -1,5 +1,6 @@
 """Document Loader — 支持多种文件类型加载"""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,11 +14,29 @@ from langchain_community.document_loaders import (
 from langchain_core.documents import Document
 
 
+class JSONTextLoader:
+    """自定义 JSON 加载器，将 JSON 内容转为字符串"""
+
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+
+    def load(self) -> list[Document]:
+        with open(self.file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if isinstance(data, list):
+            text = "\n".join(json.dumps(item, ensure_ascii=False) for item in data)
+        else:
+            text = json.dumps(data, ensure_ascii=False)
+
+        return [Document(page_content=text, metadata={"source": self.file_path})]
+
+
 class DocumentLoader:
     """
     文档加载器，支持多种文件类型
 
-    支持类型：txt, md, pdf, docx, csv, jsonl
+    支持类型：txt, md, pdf, docx, csv, json, jsonl
     使用 loader 工厂模式，按文件扩展名路由到对应加载器
     """
 
@@ -28,6 +47,7 @@ class DocumentLoader:
         ".docx": lambda path, enc: Docx2txtLoader(path),
         ".csv": lambda path, enc: CSVLoader(path, encoding=enc),
         ".jsonl": lambda path, enc: JSONLoader(path, jq_schema=".", json_lines=True),
+        ".json": lambda path, enc: JSONTextLoader(path),
     }
 
     def load(self, file_path: str | Path, encoding: str = "utf-8") -> list[Document]:

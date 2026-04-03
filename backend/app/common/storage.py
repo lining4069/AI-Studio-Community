@@ -213,6 +213,8 @@ KNOWLEDGE_ALLOWED_TYPES = {
     "text/markdown",
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/json",
+    "text/json",
 }
 
 # 知识库文档最大文件大小: 50MB
@@ -234,6 +236,7 @@ class KnowledgeFileStorage(FileStorage):
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".xls": "application/vnd.ms-excel",
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".json": "application/json",
     }
 
     def __init__(self, settings: Settings | None = None):
