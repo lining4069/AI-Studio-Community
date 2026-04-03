@@ -12,7 +12,6 @@ Provides:
 from app.modules.knowledge_base.models import (
     KbDocument,
     KbFile,
-    RetrievalMode,
 )
 from app.modules.knowledge_base.router import router as kb_router
 from app.modules.knowledge_base.schema import (
@@ -33,7 +32,6 @@ __all__ = [
     # Models
     "KbDocument",
     "KbFile",
-    "RetrievalMode",
     # Schemas
     "KbDocumentCreate",
     "KbDocumentUpdate",

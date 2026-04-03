@@ -13,14 +13,6 @@ from app.common.base import Base
 from app.utils.datetime_utils import now_utc
 
 
-class RetrievalMode(StrEnum):
-    """Retrieval mode enum"""
-
-    DENSE = "dense"  # Only vector search
-    SPARSE = "sparse"  # Only BM25 keyword search
-    HYBRID = "hybrid"  # Both vector + BM25
-
-
 class ChunkStatus(StrEnum):
     """Chunk processing status"""
 
@@ -61,12 +53,8 @@ class KbDocument(Base):
     # Chunk configuration
     chunk_size: Mapped[int] = mapped_column(Integer, default=512)
     chunk_overlap: Mapped[int] = mapped_column(Integer, default=50)
-    chunk_mode: Mapped[str] = mapped_column(String(50), default="recursive")
 
     # Retrieval configuration
-    retrieval_mode: Mapped[str] = mapped_column(
-        String(20), default=RetrievalMode.HYBRID.value
-    )
     top_k: Mapped[int] = mapped_column(Integer, default=5)
     similarity_threshold: Mapped[float] = mapped_column(default=0.0)
     vector_weight: Mapped[float] = mapped_column(default=0.7)

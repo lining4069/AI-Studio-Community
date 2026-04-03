@@ -9,7 +9,7 @@ from loguru import logger
 
 from app.common.exceptions import NotFoundException, ValidationException
 from app.core.settings import BASE_DIR
-from app.modules.knowledge_base.models import KbDocument, KbFile, RetrievalMode
+from app.modules.knowledge_base.models import KbDocument, KbFile
 from app.modules.knowledge_base.repository import (
     KbDocumentRepository,
     KbFileRepository,
@@ -290,7 +290,6 @@ class KnowledgeBaseService:
         if request.config is None:
             # Use KB defaults
             search_kb = await self.get_kb(kb_id, user_id)
-            config.retrieval_mode = RetrievalMode(search_kb.retrieval_mode)
             config.top_k = search_kb.top_k
             config.similarity_threshold = search_kb.similarity_threshold
             config.vector_weight = search_kb.vector_weight
@@ -363,7 +362,6 @@ class KnowledgeBaseService:
         config = request.config or RetrievalConfig()
         if request.config is None:
             # Use KB defaults
-            config.retrieval_mode = RetrievalMode(kb.retrieval_mode)
             config.top_k = kb.top_k
             config.similarity_threshold = kb.similarity_threshold
             config.vector_weight = kb.vector_weight

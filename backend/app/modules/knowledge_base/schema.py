@@ -6,7 +6,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.modules.knowledge_base.models import RetrievalMode
 
 # ============================================================================
 # KbDocument Schemas
@@ -22,8 +21,6 @@ class KbDocumentBase(BaseModel):
     rerank_model_id: str | None = None
     chunk_size: int = Field(default=512, gt=0)
     chunk_overlap: int = Field(default=50, ge=0)
-    chunk_mode: str = Field(default="recursive")
-    retrieval_mode: RetrievalMode = Field(default=RetrievalMode.HYBRID)
     top_k: int = Field(default=5, gt=0)
     similarity_threshold: float = Field(default=0.0, ge=0)
     vector_weight: float = Field(default=0.7, ge=0, le=1)
@@ -46,8 +43,6 @@ class KbDocumentUpdate(BaseModel):
     rerank_model_id: str | None = None
     chunk_size: int | None = Field(None, gt=0)
     chunk_overlap: int | None = Field(None, ge=0)
-    chunk_mode: str | None = None
-    retrieval_mode: RetrievalMode | None = None
     top_k: int | None = Field(None, gt=0)
     similarity_threshold: float | None = Field(None, ge=0)
     vector_weight: float | None = Field(None, ge=0, le=1)
@@ -133,7 +128,6 @@ class KbFileListResponse(BaseModel):
 class RetrievalConfig(BaseModel):
     """Retrieval configuration schema"""
 
-    retrieval_mode: RetrievalMode = Field(default=RetrievalMode.HYBRID)
     top_k: int = Field(default=5, gt=0)
     similarity_threshold: float = Field(default=0.0, ge=0)
     vector_weight: float = Field(default=0.7, ge=0, le=1)

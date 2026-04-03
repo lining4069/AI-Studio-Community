@@ -24,8 +24,6 @@ class KbDocumentRepository:
             rerank_model_id=data.rerank_model_id,
             chunk_size=data.chunk_size,
             chunk_overlap=data.chunk_overlap,
-            chunk_mode=data.chunk_mode,
-            retrieval_mode=data.retrieval_mode.value,
             top_k=data.top_k,
             similarity_threshold=data.similarity_threshold,
             vector_weight=data.vector_weight,
@@ -82,8 +80,6 @@ class KbDocumentRepository:
     async def update(self, kb: KbDocument, data) -> KbDocument:
         """Update a Knowledge Base"""
         update_dict = data.model_dump(exclude_unset=True)
-        if hasattr(update_dict.get("retrieval_mode"), "value"):
-            update_dict["retrieval_mode"] = update_dict["retrieval_mode"].value
 
         for field, value in update_dict.items():
             setattr(kb, field, value)
