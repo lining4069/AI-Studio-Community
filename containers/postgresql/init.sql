@@ -12,7 +12,7 @@ CREATE TABLE pg_chunks (
     kb_id TEXT,
     file_id TEXT,
     content TEXT,
-    embedding vector(1024),  -- ⚠️ 改成你的模型维度
+    embedding vector(1536),  
     metadata JSONB,
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

@@ -5,8 +5,6 @@ Provides factory function to create RAGService instances with proper
 embedding/reranker/vector providers based on KB model configuration.
 """
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.settings import get_settings
 from app.dependencies.infras import get_db
 from app.modules.embedding_model.repository import EmbeddingModelRepository
@@ -43,7 +41,7 @@ def _build_dense_store(
             user_id=kb.user_id,
         )
     elif vector_db_type == "postgresql":  # postgresql
-        return PGDenseStore()
+        return PGDenseStore(embedding_provider=embedding_provider)
     else:
         raise ValueError(f"Unknown vector_db_type: {vector_db_type}")
 
@@ -89,9 +87,7 @@ async def create_rag_index_service(
         embedding_provider = create_embedding(embedding_model)
 
         # 构建稠密向量存储
-        dense_store = _build_dense_store(
-            kb, embedding_provider, vector_db_type
-        )
+        dense_store = _build_dense_store(kb, embedding_provider, vector_db_type)
         # 构建稀疏向量存储
         sparse_store = _build_sparse_store(sparse_db_type)
     finally:
@@ -157,9 +153,7 @@ async def create_rag_retrieval_service(
             llm_provider = create_llm(llm_model)
 
         # 构建稠密向量存储
-        dense_store = _build_dense_store(
-            kb, embedding_provider, vector_db_type
-        )
+        dense_store = _build_dense_store(kb, embedding_provider, vector_db_type)
 
         # 构建稀疏向量存储
         sparse_store = _build_sparse_store(sparse_db_type)
