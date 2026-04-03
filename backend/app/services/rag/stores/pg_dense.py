@@ -41,6 +41,19 @@ class PGDenseStore(DenseStore):
             yield items[i : i + size]
 
     # -------------------------
+    # 工具：list[float] → PostgreSQL vector 字面量
+    # -------------------------
+    @staticmethod
+    def _vec_to_str(v: list[float]) -> str:
+        """
+        将 embedding 向量转为 PostgreSQL vector 字面量字符串
+
+        asyncpg.executemany() 无法直接发送 Python list[float] 到 PostgreSQL vector 列，
+        转为字符串后由数据库的 ::vector 强制类型转换解析。
+        """
+        return f"[{','.join(str(x) for x in v)}]"
+
+    # -------------------------
     # 插入文档
     # -------------------------
     async def add_documents(self, docs: list[DocumentUnit]) -> None:
@@ -62,12 +75,6 @@ class PGDenseStore(DenseStore):
         batch_size = min(
             getattr(self.embedding_provider, "batch_size", 10), MAX_EMBEDDING_BATCH
         )
-        insert_sql = text(f"""
-            INSERT INTO {self.table_name}
-            (id, document_id, kb_id, file_id, content, embedding, metadata)
-            VALUES
-            (:id, :document_id, :kb_id, :file_id, :content, :embedding, :metadata)
-        """)
 
         async with self.sessionmaker() as db:
             async with db.begin():  # 事务保护
@@ -83,19 +90,40 @@ class PGDenseStore(DenseStore):
                             [0.0] * self.embedding_provider.dimension for _ in chunk
                         ]
 
-                    payload = [
-                        {
-                            "id": doc.document_id,
-                            "document_id": doc.document_id,
-                            "kb_id": doc.kb_id,
-                            "file_id": doc.file_id,
-                            "content": doc.content,
-                            "embedding": emb,
-                            "metadata": doc.metadata,
-                        }
-                        for doc, emb in zip(chunk, embeddings)
-                    ]
-                    await db.execute(insert_sql, payload)
+                    # 构造批量 INSERT VALUES
+                    # list[float] → str('[v1,v2,...]')，用 ::vector 让 PG 解析
+                    rows: list[tuple[Any, ...]] = []
+                    for doc, emb in zip(chunk, embeddings):
+                        rows.append(
+                            (
+                                doc.document_id,
+                                doc.kb_id,
+                                doc.file_id,
+                                doc.content,
+                                self._vec_to_str(emb),  # str，PG 用 ::vector 解析
+                                doc.metadata,
+                            )
+                        )
+
+                    # 动态构造 VALUES 子句，避免 executemany 参数映射问题
+                    cols = "id, kb_id, file_id, content, embedding, metadata"
+                    value_rows: list[str] = []
+                    params: dict[str, Any] = {}
+                    for i, row in enumerate(rows):
+                        value_rows.append(
+                            f"(:id{i}, :kb_id{i}, :file_id{i}, :content{i}, :embedding{i}::vector, :metadata{i})"
+                        )
+                        params[f"id{i}"] = row[0]
+                        params[f"kb_id{i}"] = row[1]
+                        params[f"file_id{i}"] = row[2]
+                        params[f"content{i}"] = row[3]
+                        params[f"embedding{i}"] = row[4]
+                        params[f"metadata{i}"] = row[5]
+
+                    insert_sql = text(
+                        f"INSERT INTO {self.table_name} ({cols}) VALUES {','.join(value_rows)}"
+                    )
+                    await db.execute(insert_sql, params)
 
     # -------------------------
     # 检索
@@ -109,12 +137,12 @@ class PGDenseStore(DenseStore):
 
         base_sql = f"""
         SELECT id, document_id, kb_id, file_id, content, metadata,
-               1 - (embedding <=> :embedding) AS score
+               1 - (embedding <=> :embedding::vector) AS score
         FROM {self.table_name}
         """
 
         params: dict[str, Any] = {
-            "embedding": query_embedding,
+            "embedding": self._vec_to_str(query_embedding),
             "top_k": top_k,
         }
 
@@ -130,7 +158,7 @@ class PGDenseStore(DenseStore):
             if conditions:
                 base_sql += " WHERE " + " AND ".join(conditions)
 
-        base_sql += " ORDER BY embedding <=> :embedding LIMIT :top_k"
+        base_sql += " ORDER BY embedding <=> :embedding::vector LIMIT :top_k"
 
         async with self.sessionmaker() as db:
             result = await db.execute(text(base_sql), params)
