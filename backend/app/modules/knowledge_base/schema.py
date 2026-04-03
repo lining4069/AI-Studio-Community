@@ -126,37 +126,6 @@ class KbFileListResponse(BaseModel):
 
 
 # ============================================================================
-# KbChunk Schemas
-# ============================================================================
-
-
-class KbChunkResponse(BaseModel):
-    """Schema for Knowledge Base Chunk response"""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    user_id: int
-    kb_id: str
-    file_id: str
-    content: str
-    chunk_index: int
-    is_active: bool
-    metadata: dict = Field(default_factory=dict)
-    created_at: datetime
-    updated_at: datetime
-
-
-class KbChunkListResponse(BaseModel):
-    """Schema for paginated Knowledge Base Chunk list"""
-
-    items: list[KbChunkResponse]
-    total: int
-    page: int
-    page_size: int
-
-
-# ============================================================================
 # RAG / Retrieval Schemas
 # ============================================================================
 

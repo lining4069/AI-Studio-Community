@@ -17,7 +17,7 @@ def get_async_db_angine(settings: Settings = get_settings()) -> AsyncEngine:
             echo=settings.DB_ECHO,  # 是否输出sql日志
             pool_pre_ping=True,  # 每次去连接前ping一下
         )
-    elif settings.DATABASE_TYPE == "postgres":
+    elif settings.DATABASE_TYPE == "postgresql":
         database_url = f"postgresql+asyncpg://{settings.DATABASE_USER}:{settings.DATABASE_PASSWORD}@{settings.DATABASE_HOST}:{settings.DATABASE_PORT}/{settings.DATABASE_NAME}"
         return create_async_engine(
             url=database_url,

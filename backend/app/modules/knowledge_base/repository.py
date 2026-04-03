@@ -2,10 +2,10 @@
 Knowledge Base repository for database operations.
 """
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.knowledge_base.models import KbChunk, KbDocument, KbFile
+from app.modules.knowledge_base.models import KbDocument, KbFile
 
 
 class KbDocumentRepository:
@@ -177,135 +177,3 @@ class KbFileRepository:
         await self.db.delete(file)
         await self.db.flush()
 
-
-class KbChunkRepository:
-    """Repository for KbChunk database operations"""
-
-    def __init__(self, db: AsyncSession):
-        self.db = db
-
-    async def create(
-        self,
-        user_id: int,
-        kb_id: str,
-        file_id: str,
-        content: str,
-        chunk_index: int,
-        metadata: dict,
-    ) -> KbChunk:
-        """Create a new chunk record"""
-        model = KbChunk(
-            user_id=user_id,
-            kb_id=kb_id,
-            file_id=file_id,
-            content=content,
-            chunk_index=chunk_index,
-            metadata=metadata or {},
-        )
-        self.db.add(model)
-        await self.db.flush()
-        await self.db.refresh(model)
-        return model
-
-    async def bulk_create(self, chunks: list[KbChunk]) -> None:
-        """Bulk create chunks"""
-        self.db.add_all(chunks)
-        await self.db.flush()
-
-    async def get_by_id(self, chunk_id: str, user_id: int) -> KbChunk | None:
-        """Get chunk by ID"""
-        stmt = select(KbChunk).where(KbChunk.id == chunk_id, KbChunk.user_id == user_id)
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def list_by_file(
-        self, file_id: str, user_id: int, page: int = 1, page_size: int = 20
-    ) -> tuple[list[KbChunk], int]:
-        """List chunks in a file"""
-        count_stmt = (
-            select(func.count())
-            .select_from(KbChunk)
-            .where(KbChunk.file_id == file_id, KbChunk.user_id == user_id)
-        )
-        total_result = await self.db.execute(count_stmt)
-        total = total_result.scalar_one()
-
-        offset = (page - 1) * page_size
-        stmt = (
-            select(KbChunk)
-            .where(KbChunk.file_id == file_id, KbChunk.user_id == user_id)
-            .order_by(KbChunk.chunk_index.asc())
-            .offset(offset)
-            .limit(page_size)
-        )
-        result = await self.db.execute(stmt)
-        items = list(result.scalars().all())
-
-        return items, total
-
-    async def list_by_kb(
-        self, kb_id: str, user_id: int, page: int = 1, page_size: int = 20
-    ) -> tuple[list[KbChunk], int]:
-        """List chunks in a Knowledge Base"""
-        count_stmt = (
-            select(func.count())
-            .select_from(KbChunk)
-            .where(KbChunk.kb_id == kb_id, KbChunk.user_id == user_id)
-        )
-        total_result = await self.db.execute(count_stmt)
-        total = total_result.scalar_one()
-
-        offset = (page - 1) * page_size
-        stmt = (
-            select(KbChunk)
-            .where(KbChunk.kb_id == kb_id, KbChunk.user_id == user_id)
-            .order_by(KbChunk.chunk_index.asc())
-            .offset(offset)
-            .limit(page_size)
-        )
-        result = await self.db.execute(stmt)
-        items = list(result.scalars().all())
-
-        return items, total
-
-    async def get_by_ids(self, chunk_ids: list[str], user_id: int) -> list[KbChunk]:
-        """Get multiple chunks by IDs"""
-        stmt = select(KbChunk).where(
-            KbChunk.id.in_(chunk_ids), KbChunk.user_id == user_id
-        )
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
-
-    async def update_vector_id(self, chunk_id: str, vector_id: str) -> None:
-        """Update vector ID for a chunk"""
-        stmt = update(KbChunk).where(KbChunk.id == chunk_id).values(vector_id=vector_id)
-        await self.db.execute(stmt)
-        await self.db.flush()
-
-    async def delete_by_file(self, file_id: str) -> list[str]:
-        """Delete all chunks for a file, return chunk IDs deleted"""
-        # First get chunk IDs
-        stmt = select(KbChunk.id).where(KbChunk.file_id == file_id)
-        result = await self.db.execute(stmt)
-        chunk_ids = [row[0] for row in result.all()]
-
-        # Delete chunks
-        del_stmt = delete(KbChunk).where(KbChunk.file_id == file_id)
-        await self.db.execute(del_stmt)
-        await self.db.flush()
-
-        return chunk_ids
-
-    async def delete_by_kb(self, kb_id: str) -> None:
-        """Delete all chunks for a Knowledge Base"""
-        del_stmt = delete(KbChunk).where(KbChunk.kb_id == kb_id)
-        await self.db.execute(del_stmt)
-        await self.db.flush()
-
-    async def count_by_kb(self, kb_id: str) -> int:
-        """Count chunks in a Knowledge Base"""
-        count_stmt = (
-            select(func.count()).select_from(KbChunk).where(KbChunk.kb_id == kb_id)
-        )
-        result = await self.db.execute(count_stmt)
-        return result.scalar_one()

@@ -102,6 +102,57 @@ class RAGRetrievalService:
             metadata_filter=metadata_filter,
         )
 
+    async def retrieve(
+        self,
+        query: str,
+        top_k: int = 10,
+        vector_weight: float = 0.7,
+        metadata_filter: dict[str, Any] | None = None,
+        enable_rerank: bool = False,
+        rerank_top_k: int = 3,
+        similarity_threshold: float = 0.0,
+    ) -> list[tuple[DocumentUnit, float]]:
+        """
+        检索接口，返回带分数的 DocumentUnit 列表
+
+        Args:
+            query: 查询文本
+            top_k: 返回数量
+            vector_weight: 稠密权重
+            metadata_filter: 元数据过滤
+            enable_rerank: 是否重排
+            rerank_top_k: 重排后返回数量
+            similarity_threshold: 相似度阈值（仅对稠密检索生效）
+
+        Returns:
+            list of (DocumentUnit, score)，按 score 降序排列
+        """
+        # 1. Embed query
+        query_embedding = await self.embedding_provider.aembed_query(query)
+
+        # 2. Parallel retrieval
+        dense_results = self._dense_retrieve(query_embedding, top_k, metadata_filter)
+        sparse_results = self._sparse_retrieve(query, top_k, metadata_filter)
+
+        # 3. RRF fusion
+        fused = self._rrf_fusion(dense_results, sparse_results, vector_weight)
+
+        # 4. Apply similarity threshold (dense scores are normalized [0,1] in RRF)
+        if similarity_threshold > 0:
+            fused = [(doc, score) for doc, score in fused if score >= similarity_threshold]
+
+        # 5. Rerank if enabled
+        if enable_rerank and self.reranker_provider:
+            docs = [doc for doc, _ in fused]
+            reranked_docs = await self.rerank(query, docs, rerank_top_k)
+            # Map back scores using original fused scores
+            score_map = {doc.document_id: score for doc, score in fused}
+            fused = [
+                (doc, score_map.get(doc.document_id, 0.0)) for doc in reranked_docs
+            ]
+
+        return fused
+
     def _rrf_fusion(
         self,
         dense_results: list[tuple[DocumentUnit, float]],

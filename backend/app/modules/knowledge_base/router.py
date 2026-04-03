@@ -26,7 +26,6 @@ from app.common.responses import APIResponse, PageData
 from app.dependencies import CurrentUser, KBFileStorage
 from app.dependencies.infras import DBAsyncSession
 from app.modules.knowledge_base.repository import (
-    KbChunkRepository,
     KbDocumentRepository,
     KbFileRepository,
 )
@@ -60,21 +59,14 @@ def get_kb_file_repository(db: DBAsyncSession) -> KbFileRepository:
     return KbFileRepository(db)
 
 
-def get_kb_chunk_repository(db: DBAsyncSession) -> KbChunkRepository:
-    """Get KB Chunk repository"""
-    return KbChunkRepository(db)
-
-
 def get_kb_service(
     doc_repo: Annotated[KbDocumentRepository, Depends(get_kb_document_repository)],
     file_repo: Annotated[KbFileRepository, Depends(get_kb_file_repository)],
-    chunk_repo: Annotated[KbChunkRepository, Depends(get_kb_chunk_repository)],
 ) -> KnowledgeBaseService:
     """Get Knowledge Base service"""
     return KnowledgeBaseService(
         doc_repo=doc_repo,
         file_repo=file_repo,
-        chunk_repo=chunk_repo,
     )
 
 

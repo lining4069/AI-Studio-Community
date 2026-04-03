@@ -8,11 +8,12 @@ from pydantic import BaseModel, Field
 
 class DocumentUnit(BaseModel):
     """RAG 模块/服务中循环流通的数据结构"""
-    document_id: str          # 外部生成的 UUID
+
+    document_id: str  # 外部生成的 UUID
     kb_id: str
     file_id: str
     chunk_index: int
-    content: str              # 原始文本
+    content: str  # 原始文本
     metadata: dict = Field(default_factory=dict)  # 额外元数据
 
 

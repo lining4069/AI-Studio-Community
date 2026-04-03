@@ -4,14 +4,12 @@ Knowledge Base Module.
 Provides:
 - Knowledge Base (KB) document CRUD
 - Multi-format file upload and management
-- File indexing pipeline (load → split → embed → ChromaDB + MySQL)
+- File indexing pipeline (load → split → embed → vector DB)
 - Hybrid retrieval (dense vector + sparse/BM25)
 - Full RAG pipeline with optional LLM generation
 """
 
 from app.modules.knowledge_base.models import (
-    ChunkStatus,
-    KbChunk,
     KbDocument,
     KbFile,
     RetrievalMode,
@@ -35,9 +33,7 @@ __all__ = [
     # Models
     "KbDocument",
     "KbFile",
-    "KbChunk",
     "RetrievalMode",
-    "ChunkStatus",
     # Schemas
     "KbDocumentCreate",
     "KbDocumentUpdate",

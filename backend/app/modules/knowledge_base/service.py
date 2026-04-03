@@ -9,9 +9,8 @@ from loguru import logger
 
 from app.common.exceptions import NotFoundException, ValidationException
 from app.core.settings import BASE_DIR
-from app.modules.knowledge_base.models import KbChunk, KbDocument, KbFile, RetrievalMode
+from app.modules.knowledge_base.models import KbDocument, KbFile, RetrievalMode
 from app.modules.knowledge_base.repository import (
-    KbChunkRepository,
     KbDocumentRepository,
     KbFileRepository,
 )
@@ -23,8 +22,12 @@ from app.modules.knowledge_base.schema import (
     RetrievalConfig,
     RetrievalRequest,
     RetrievalResponse,
+    RetrievalResult,
 )
-from app.services.rag.service_factory import get_rag_service
+from app.services.rag.service_factory import (
+    create_rag_index_service,
+    create_rag_retrieval_service,
+)
 
 
 class KnowledgeBaseService:
@@ -34,11 +37,9 @@ class KnowledgeBaseService:
         self,
         doc_repo: KbDocumentRepository,
         file_repo: KbFileRepository,
-        chunk_repo: KbChunkRepository,
     ):
         self.doc_repo = doc_repo
         self.file_repo = file_repo
-        self.chunk_repo = chunk_repo
 
     # =========================================================================
     # Document (Knowledge Base) CRUD
@@ -97,17 +98,16 @@ class KnowledgeBaseService:
         """Delete a Knowledge Base and all its data"""
         kb = await self.get_kb(kb_id, user_id)
 
-        # Delete from vector store
+        # Delete from vector store (delete each file's documents)
         try:
-            rag_service = await get_rag_service(kb)
-            await rag_service.delete_knowledge_base(kb.collection_name, kb.user_id)
+            rag_service = await create_rag_index_service(kb)
+            files, _ = await self.file_repo.list_by_kb(kb_id, user_id, 1, 10000)
+            for f in files:
+                rag_service.delete_document(f.id)
         except Exception as e:
-            logger.error(f"Failed to delete vector store: {e}")
+            logger.error(f"Failed to delete from vector store: {e}")
 
-        # Delete chunks from DB
-        await self.chunk_repo.delete_by_kb(kb_id)
-
-        # Delete files from DB (chunks should cascade)
+        # Delete files from DB (chunks are in vector DB, not here)
         # Note: actual file deletion from storage should be handled by a background task
 
         # Delete KB
@@ -198,32 +198,13 @@ class KnowledgeBaseService:
 
         # Delete from vector store
         try:
-            rag_service = await get_rag_service(kb)
-            await rag_service.delete_document(file_id, kb.collection_name, kb.user_id)
+            rag_service = await create_rag_index_service(kb)
+            rag_service.delete_document(file_id)
         except Exception as e:
             logger.error(f"Failed to delete from vector store: {e}")
 
-        # Delete chunks from DB
-        await self.chunk_repo.delete_by_file(file_id)
-
         # Delete file record
         await self.file_repo.delete(file)
-
-    # =========================================================================
-    # Chunk Operations
-    # =========================================================================
-
-    async def list_chunks(
-        self,
-        file_id: str,
-        user_id: int,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> tuple[list[KbChunk], int]:
-        """List chunks in a file"""
-        # Verify file exists
-        await self.get_file(file_id, user_id)
-        return await self.chunk_repo.list_by_file(file_id, user_id, page, page_size)
 
     # =========================================================================
     # Indexing Pipeline
@@ -251,20 +232,16 @@ class KnowledgeBaseService:
         # file.file_path is stored as /storage/knowledge/... (relative to BASE_DIR)
         absolute_file_path = str(BASE_DIR / file.file_path.lstrip("/"))
 
-        # Get or create RAG service
-        rag_service = await get_rag_service(kb)
+        # Get RAG index service
+        rag_service = await create_rag_index_service(kb)
 
         try:
             # Index document
             chunk_count, chunk_ids = await rag_service.index_document(
+                file_path=absolute_file_path,
                 kb_id=kb.id,
                 file_id=file_id,
-                file_path=absolute_file_path,
-                file_name=file.file_name,
                 user_id=kb.user_id,
-                chunk_size=kb.chunk_size,
-                chunk_overlap=kb.chunk_overlap,
-                collection_name=kb.collection_name,
                 metadata={"kb_id": kb.id, "file_id": file_id},
             )
 
@@ -272,17 +249,6 @@ class KnowledgeBaseService:
             await self.file_repo.update(
                 file, status="completed", chunk_count=chunk_count
             )
-
-            # Store chunk records in DB
-            for i, chunk_id in enumerate(chunk_ids):
-                await self.chunk_repo.create(
-                    user_id=user_id,
-                    kb_id=kb.id,
-                    file_id=file_id,
-                    content=f"[chunk {chunk_id}]",  # Content stored in vector DB
-                    chunk_index=i,
-                    metadata={"chunk_id": chunk_id, "vector_id": chunk_id},
-                )
 
             return chunk_count
 
@@ -337,22 +303,28 @@ class KnowledgeBaseService:
 
         for search_kb_id in search_kb_ids:
             search_kb = await self.get_kb(search_kb_id, user_id)
-            search_rag_service = await get_rag_service(search_kb)
+            search_rag_service = await create_rag_retrieval_service(search_kb)
 
-            # Retrieve
-            results = await search_rag_service.retrieve(
+            # Retrieve with hybrid search + optional rerank
+            results_with_scores = await search_rag_service.retrieve(
                 query=request.query,
-                collection_name=search_kb.collection_name,
-                user_id=search_kb.user_id,
                 top_k=config.top_k,
-                retrieval_mode=config.retrieval_mode,
                 vector_weight=config.vector_weight,
-                similarity_threshold=config.similarity_threshold,
+                metadata_filter={"kb_id": search_kb.id},
                 enable_rerank=config.enable_rerank and search_kb.enable_rerank,
                 rerank_top_k=config.rerank_top_k,
+                similarity_threshold=config.similarity_threshold,
             )
 
-            all_results.extend(results)
+            for doc, score in results_with_scores:
+                all_results.append(
+                    RetrievalResult(
+                        chunk_id=doc.document_id,
+                        content=doc.content,
+                        score=score,
+                        metadata=doc.metadata,
+                    )
+                )
 
         # Sort by score and limit
         all_results.sort(key=lambda x: x.score, reverse=True)
@@ -387,21 +359,6 @@ class KnowledgeBaseService:
 
         kb = await self.get_kb(kb_id, user_id)
 
-        # Get LLM provider if LLM model ID provided
-        llm_provider = None
-        if request.llm_model_id:
-            from app.modules.llm_model.repository import LlmModelRepository
-            from app.services.providers.model_factory import create_llm
-
-            llm_repo = LlmModelRepository(self.doc_repo.db)
-            llm_model = await llm_repo.get_by_id(request.llm_model_id, user_id)
-            if not llm_model:
-                raise NotFoundException("LLMModel", request.llm_model_id)
-            llm_provider = create_llm(llm_model)
-
-        # Get or create RAG service
-        rag_service = await get_rag_service(kb, llm_provider=llm_provider)
-
         # Determine config
         config = request.config or RetrievalConfig()
         if request.config is None:
@@ -413,66 +370,76 @@ class KnowledgeBaseService:
             config.enable_rerank = kb.enable_rerank
             config.rerank_top_k = kb.rerank_top_k
 
-        # Determine KBs to search
-        search_kb_ids = request.kb_ids
-        all_results = []
-        all_sources = []
+        all_results: list[RetrievalResult] = []
+        all_sources: set[str] = set()
 
-        for search_kb_id in search_kb_ids:
-            search_kb = await self.get_kb(search_kb_id, user_id)
-            search_rag_service = await get_rag_service(search_kb)
-
-            # Retrieve
-            results = await search_rag_service.retrieve(
-                query=request.query,
-                collection_name=search_kb.collection_name,
-                user_id=search_kb.user_id,
-                top_k=config.top_k,
-                retrieval_mode=config.retrieval_mode,
-                vector_weight=config.vector_weight,
-                similarity_threshold=config.similarity_threshold,
-                enable_rerank=config.enable_rerank and search_kb.enable_rerank,
-                rerank_top_k=config.rerank_top_k,
-            )
-
-            all_results.extend(results)
-            all_sources.extend(
-                {r.metadata.get("file_name", "Unknown") for r in results}
-            )
-
-        # Sort and limit
-        all_results.sort(key=lambda x: x.score, reverse=True)
-        all_results = all_results[: config.rerank_top_k or config.top_k]
-
-        # Generate if LLM model ID provided
-        answer = ""
         if request.llm_model_id:
-            # Generate using the primary KB's collection
-            # Note: multi-KB RAG re-retrieves from the primary KB
-            answer, results, sources = await rag_service.rag(
+            # Full RAG: use rag() which does retrieve + generate
+            rag_service = await create_rag_retrieval_service(
+                kb, llm_model_id=request.llm_model_id
+            )
+
+            answer, docs, sources = await rag_service.rag(
                 query=request.query,
-                collection_name=kb.collection_name,
-                user_id=kb.user_id,
                 top_k=config.top_k,
-                retrieval_mode=config.retrieval_mode,
                 vector_weight=config.vector_weight,
-                similarity_threshold=config.similarity_threshold,
+                metadata_filter={"kb_id": kb.id},
                 enable_rerank=config.enable_rerank,
                 rerank_top_k=config.rerank_top_k,
                 prompt_template=request.prompt,
                 conversation_history=request.history,
             )
-            # Update sources to include all KBs' sources
-            all_sources = list(set(all_sources + sources))
+            all_sources = set(sources)
+            all_results = [
+                RetrievalResult(
+                    chunk_id=doc.document_id,
+                    content=doc.content,
+                    score=0.0,
+                    metadata=doc.metadata,
+                )
+                for doc in docs
+            ]
         else:
+            # Retrieval only: use hybrid_retrieve + rerank per KB
+            for search_kb_id in request.kb_ids:
+                search_kb = await self.get_kb(search_kb_id, user_id)
+                search_rag_service = await create_rag_retrieval_service(search_kb)
+
+                docs = await search_rag_service.hybrid_retrieve(
+                    query=request.query,
+                    top_k=config.top_k,
+                    vector_weight=config.vector_weight,
+                    metadata_filter={"kb_id": search_kb.id},
+                )
+
+                if config.enable_rerank and search_kb.enable_rerank:
+                    docs = await search_rag_service.rerank(
+                        request.query, docs, config.rerank_top_k
+                    )
+
+                for doc in docs:
+                    all_results.append(
+                        RetrievalResult(
+                            chunk_id=doc.document_id,
+                            content=doc.content,
+                            score=0.0,
+                            metadata=doc.metadata,
+                        )
+                    )
+                    if doc.metadata.get("file_name"):
+                        all_sources.add(doc.metadata["file_name"])
+
+            all_results.sort(key=lambda x: x.score, reverse=True)
+            all_results = all_results[: config.rerank_top_k or config.top_k]
+
             # Just return retrieved content
             answer = "\n\n".join(
-                [f"[Score: {r.score:.3f}] {r.content[:300]}..." for r in all_results]
+                [f"[{i + 1}] {r.content[:300]}..." for i, r in enumerate(all_results)]
             )
 
         return RAGResponse(
             answer=answer,
             results=all_results,
-            sources=list(set(all_sources)),
+            sources=list(all_sources),
             query=request.query,
         )
