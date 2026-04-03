@@ -77,19 +77,10 @@ class ChromaDenseStore(DenseStore):
                 for doc in chunk
             ]
 
-            # ChromaDB 客户端是同步的，丢到线程池执行
-            def _sync_add():
-                self._collection.add(
-                    ids=ids,
-                    embeddings=None,  # ChromaDB auto-embeds if None
-                    documents=texts,
-                    metadatas=metadatas,
-                )
-
             # 内部做 embedding，转到线程避免阻塞事件循环
             embeddings = await self.embedding_provider.aembed(texts)
 
-            def _sync_add_with_emb():
+            def _sync_add():
                 self._collection.add(
                     ids=ids,
                     embeddings=embeddings,
@@ -97,7 +88,7 @@ class ChromaDenseStore(DenseStore):
                     metadatas=metadatas,
                 )
 
-            await asyncio.to_thread(_sync_add_with_emb)
+            await asyncio.to_thread(_sync_add)
 
     # ========================
     # 检索（向量相似度）
