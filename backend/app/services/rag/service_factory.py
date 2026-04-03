@@ -44,10 +44,7 @@ def _build_dense_store(
             user_id=kb.user_id,
         )
     elif vector_db_type == "postgresql":  # postgresql
-        return PGDenseStore(
-            db_session=db_session,
-            embedding_provider=embedding_provider,
-        )
+        return PGDenseStore(db_session=db_session)
     else:
         raise ValueError(f"Unknown vector_db_type: {vector_db_type}")
 

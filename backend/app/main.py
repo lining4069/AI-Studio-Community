@@ -34,7 +34,6 @@ def create_app(
         title="AI Studio",
         version="1.0.0",
         lifespan=lifespan,
-        prefix="/ai-studio",
     )
     # 1.导入路由
     register_business_routers(app)

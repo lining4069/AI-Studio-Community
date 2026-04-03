@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Enum, Index, Integer, String
+from sqlalchemy import Boolean, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.base import Base, TimestampMixin
@@ -38,7 +38,7 @@ class User(Base, TimestampMixin):
         default="https://fastly.jsdelivr.net/npm/@vant/assets/cat.jpeg",
     )
     gender: Mapped[str | None] = mapped_column(
-        Enum("male", "female", "unknown"), comment="性别", default="unknown"
+        String(7), comment="性别", default="unknown"
     )
     bio: Mapped[str | None] = mapped_column(
         String(500), comment="个⼈简介", default="这个⼈很懒，什么都没留下"
