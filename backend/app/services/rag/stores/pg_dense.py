@@ -2,8 +2,8 @@ import re
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.dependencies.infras import AsyncSessionLocal
 from app.services.rag.stores.base import DenseStore, DocumentUnit
 
 
@@ -12,10 +12,8 @@ class PGDenseStore(DenseStore):
 
     def __init__(
         self,
-        db_session: AsyncSession,
         table_name: str = "pg_chunks",
     ) -> None:
-        self.db = db_session
         self.table_name = table_name
 
     # ========================
@@ -50,8 +48,9 @@ class PGDenseStore(DenseStore):
                 }
             )
 
-        await self.db.execute(insert_sql, payload)
-        await self.db.commit()
+        async with AsyncSessionLocal() as db:
+            await db.execute(insert_sql, payload)
+            await db.commit()
 
     # ========================
     # 检索（向量相似度）
@@ -93,8 +92,9 @@ class PGDenseStore(DenseStore):
         # ⚠️ pgvector 核心排序（必须）
         base_sql += " ORDER BY embedding <=> :embedding LIMIT :top_k"
 
-        result = await self.db.execute(text(base_sql), params)
-        rows = result.fetchall()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(text(base_sql), params)
+            rows = result.fetchall()
 
         return [
             (
@@ -122,8 +122,9 @@ class PGDenseStore(DenseStore):
             WHERE document_id = ANY(:document_ids)
         """)
 
-        result = await self.db.execute(sql, {"document_ids": document_ids})
-        await self.db.commit()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(sql, {"document_ids": document_ids})
+            await db.commit()
         return result.rowcount or 0
 
     async def delete_by_file_id(self, file_id: str) -> int:
@@ -132,6 +133,7 @@ class PGDenseStore(DenseStore):
             WHERE file_id = :file_id
         """)
 
-        result = await self.db.execute(sql, {"file_id": file_id})
-        await self.db.commit()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(sql, {"file_id": file_id})
+            await db.commit()
         return result.rowcount or 0

@@ -30,7 +30,6 @@ from app.services.rag.stores.pg_sparse import PGSparseStore
 def _build_dense_store(
     kb: KbDocument,
     embedding_provider: EmbeddingProvider,
-    db_session: AsyncSession,
     vector_db_type: str,
 ) -> DenseStore:
     """构建稠密向量存储"""
@@ -44,15 +43,15 @@ def _build_dense_store(
             user_id=kb.user_id,
         )
     elif vector_db_type == "postgresql":  # postgresql
-        return PGDenseStore(db_session=db_session)
+        return PGDenseStore()
     else:
         raise ValueError(f"Unknown vector_db_type: {vector_db_type}")
 
 
-def _build_sparse_store(db_session: AsyncSession, sparse_db_type: str) -> SparseStore:
+def _build_sparse_store(sparse_db_type: str) -> SparseStore:
     """构建稀疏向量存储"""
     if sparse_db_type == "postgresql":
-        return PGSparseStore(db_session=db_session)
+        return PGSparseStore()
     else:
         raise ValueError(f"Unknown sparse_db_type: {sparse_db_type}")
 
@@ -91,10 +90,10 @@ async def create_rag_index_service(
 
         # 构建稠密向量存储
         dense_store = _build_dense_store(
-            kb, embedding_provider, db_session, vector_db_type
+            kb, embedding_provider, vector_db_type
         )
         # 构建稀疏向量存储
-        sparse_store = _build_sparse_store(db_session, sparse_db_type)
+        sparse_store = _build_sparse_store(sparse_db_type)
     finally:
         await db_session.close()
 
@@ -159,11 +158,11 @@ async def create_rag_retrieval_service(
 
         # 构建稠密向量存储
         dense_store = _build_dense_store(
-            kb, embedding_provider, db_session, vector_db_type
+            kb, embedding_provider, vector_db_type
         )
 
         # 构建稀疏向量存储
-        sparse_store = _build_sparse_store(db_session, sparse_db_type)
+        sparse_store = _build_sparse_store(sparse_db_type)
     finally:
         await db_session.close()
 
