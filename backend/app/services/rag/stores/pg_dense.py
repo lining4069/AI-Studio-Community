@@ -1,3 +1,4 @@
+import json
 import re
 from collections.abc import Generator
 from typing import Any
@@ -105,25 +106,25 @@ class PGDenseStore(DenseStore):
                             )
                         )
 
-                    # 动态构造 VALUES 子句，避免 executemany 参数映射问题
-                    cols = "id, kb_id, file_id, content, embedding, metadata"
-                    value_rows: list[str] = []
-                    params: dict[str, Any] = {}
-                    for i, row in enumerate(rows):
-                        value_rows.append(
-                            f"(:id{i}, :kb_id{i}, :file_id{i}, :content{i}, :embedding{i}::vector, :metadata{i})"
-                        )
-                        params[f"id{i}"] = row[0]
-                        params[f"kb_id{i}"] = row[1]
-                        params[f"file_id{i}"] = row[2]
-                        params[f"content{i}"] = row[3]
-                        params[f"embedding{i}"] = row[4]
-                        params[f"metadata{i}"] = row[5]
-
-                    insert_sql = text(
-                        f"INSERT INTO {self.table_name} ({cols}) VALUES {','.join(value_rows)}"
+                    cols = (
+                        "id, document_id, kb_id, file_id, content, embedding, metadata"
                     )
-                    await db.execute(insert_sql, params)
+                    single_insert_sql = text(
+                        f"INSERT INTO {self.table_name} ({cols}) VALUES (:id, :document_id, :kb_id, :file_id, :content, cast(:embedding as vector), :metadata)"
+                    )
+                    for row in rows:
+                        await db.execute(
+                            single_insert_sql,
+                            {
+                                "id": row[0],
+                                "document_id": row[0],
+                                "kb_id": row[1],
+                                "file_id": row[2],
+                                "content": row[3],
+                                "embedding": row[4],
+                                "metadata": json.dumps(row[5]) if row[5] else {},
+                            },
+                        )
 
     # -------------------------
     # 检索
@@ -134,10 +135,9 @@ class PGDenseStore(DenseStore):
         top_k: int = 10,
         metadata_filter: dict[str, Any] | None = None,
     ) -> list[tuple[DocumentUnit, float]]:
-
         base_sql = f"""
         SELECT id, document_id, kb_id, file_id, content, metadata,
-               1 - (embedding <=> :embedding::vector) AS score
+               1 - (embedding <=> cast(:embedding as vector)) AS score
         FROM {self.table_name}
         """
 
@@ -158,7 +158,7 @@ class PGDenseStore(DenseStore):
             if conditions:
                 base_sql += " WHERE " + " AND ".join(conditions)
 
-        base_sql += " ORDER BY embedding <=> :embedding::vector LIMIT :top_k"
+        base_sql += " ORDER BY embedding <=> cast(:embedding as vector) LIMIT :top_k"
 
         async with self.sessionmaker() as db:
             result = await db.execute(text(base_sql), params)
