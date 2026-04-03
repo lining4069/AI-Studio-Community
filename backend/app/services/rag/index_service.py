@@ -90,19 +90,15 @@ class RAGIndexService:
             )
             doc_units.append(doc_unit)
 
-        # 5. 计算 embeddings
-        texts = [u.content for u in doc_units]
-        embeddings = await self.embedding_provider.aembed(texts)
+        # 5. 写入 DenseStore（嵌入在 store 内部完成，支持分批）
+        await self.dense_store.add_documents(doc_units)
 
-        # 6. 写入 DenseStore
-        self.dense_store.add_documents(doc_units, embeddings)
-
-        # 7. 写入 SparseStore（jieba 分词在内部处理）
-        self.sparse_store.add_documents(doc_units)
+        # 6. 写入 SparseStore（jieba 分词在内部处理）
+        await self.sparse_store.add_documents(doc_units)
 
         return len(doc_units), document_ids
 
-    def delete_document(self, file_id: str) -> int:
+    async def delete_document(self, file_id: str) -> int:
         """
         删除文档
 
@@ -112,8 +108,8 @@ class RAGIndexService:
         Returns:
             删除的块数量
         """
-        deleted_dense = self.dense_store.delete_by_file_id(file_id)
-        deleted_sparse = self.sparse_store.delete_by_file_id(file_id)
+        deleted_dense = await self.dense_store.delete_by_file_id(file_id)
+        deleted_sparse = await self.sparse_store.delete_by_file_id(file_id)
         if deleted_dense != deleted_sparse:
             logger.warning(f"Delete mismatch: dense={deleted_dense}, sparse={deleted_sparse}")
         return max(deleted_dense, deleted_sparse)

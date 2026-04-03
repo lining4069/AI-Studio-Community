@@ -38,7 +38,7 @@ def get_async_db_angine(settings: Settings = get_settings()) -> AsyncEngine:
 
 async_engine = get_async_db_angine()
 
-AsyncSessionLocal = async_sessionmaker(
+AsyncSessionFactory = async_sessionmaker(
     bind=async_engine,  # 绑定数据库引擎
     class_=AsyncSession,  # 制定会话类
     expire_on_commit=False,  # 提交会话不过期，不会重新查库
@@ -50,7 +50,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """获取数据库会话依赖项"""
 
     # 1. 事务开始：创建新的 Session
-    session = AsyncSessionLocal()
+    session = AsyncSessionFactory()
     try:
         # 2. 暂停执行：将 Session 实例注入
         yield session
@@ -73,7 +73,7 @@ def with_async_db_session(func):
 
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        session = AsyncSessionLocal()
+        session = AsyncSessionFactory()
         try:
             kwargs["session"] = session
             result = await func(*args, **kwargs)

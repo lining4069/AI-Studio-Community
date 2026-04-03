@@ -3,24 +3,26 @@ from typing import Any
 
 import jieba
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.dependencies.infras import AsyncSessionLocal
+from app.dependencies.infras.database import AsyncSessionFactory
 from app.services.rag.stores.base import DocumentUnit, SparseStore
 
 
 class PGSparseStore(SparseStore):
-    """PostgreSQL + jieba 稀疏存储（生产级实现）"""
+    """PostgreSQL + jieba 稀疏存储（BM25，生产级最终版）"""
 
-    STOPWORDS = {"的", "了", "是", "在"}  # 可扩展
+    STOPWORDS = {"的", "了", "是", "在"}
 
     def __init__(
         self,
         table_name: str = "pg_sparse_chunks",
     ) -> None:
         self.table_name = table_name
+        self.sessionmaker: async_sessionmaker[AsyncSession] = AsyncSessionFactory
 
     # ========================
-    # Tokenize（核心）
+    # 分词（写入 & 查询统一）
     # ========================
     def _tokenize(self, text: str) -> str:
         tokens = [
@@ -31,22 +33,26 @@ class PGSparseStore(SparseStore):
         return " ".join(tokens)
 
     # ========================
-    # 插入（批量 + 直接生成 tsv）
+    # 插入（批量 + 事务）
     # ========================
-    async def add_documents(self, docs: list[DocumentUnit]) -> None:
+    async def add_documents(
+        self,
+        docs: list[DocumentUnit],
+    ) -> None:
         if not docs:
             return
 
         insert_sql = text(f"""
             INSERT INTO {self.table_name}
-            (id, document_id, kb_id, file_id, content, tokens, metadata, tsv)
+            (id, document_id, kb_id, file_id, content, tokens, metadata)
             VALUES
-            (:id, :document_id, :kb_id, :file_id, :content, :tokens, :metadata, to_tsvector('simple', :tokens))
+            (:id, :document_id, :kb_id, :file_id, :content, :tokens, :metadata)
         """)
 
         payload = []
         for doc in docs:
             tokens = self._tokenize(doc.content)
+
             payload.append(
                 {
                     "id": doc.document_id,
@@ -59,12 +65,12 @@ class PGSparseStore(SparseStore):
                 }
             )
 
-        async with AsyncSessionLocal() as db:
-            await db.execute(insert_sql, payload)
-            await db.commit()
+        async with self.sessionmaker() as db:
+            async with db.begin():
+                await db.execute(insert_sql, payload)
 
     # ========================
-    # 检索（核心优化）
+    # 检索（BM25）
     # ========================
     async def retrieve(
         self,
@@ -73,7 +79,7 @@ class PGSparseStore(SparseStore):
         metadata_filter: dict[str, Any] | None = None,
     ) -> list[tuple[DocumentUnit, float]]:
 
-        # ✅ query 分词（必须）
+        # ✅ query 必须分词（核心）
         query_tokens = self._tokenize(query)
 
         base_sql = f"""
@@ -92,20 +98,25 @@ class PGSparseStore(SparseStore):
         }
 
         # ========================
-        # metadata filter（安全写法）
+        # metadata 过滤（安全）
         # ========================
         if metadata_filter:
+            conditions = []
             for i, (key, value) in enumerate(metadata_filter.items()):
                 safe_key = re.sub(r"[^a-zA-Z0-9_]", "", key)
                 if not safe_key:
                     continue
+
                 param_key = f"meta_{i}"
-                base_sql += f" AND metadata ->> '{safe_key}' = :{param_key}"
+                conditions.append(f"metadata ->> '{safe_key}' = :{param_key}")
                 params[param_key] = str(value)
+
+            if conditions:
+                base_sql += " AND " + " AND ".join(conditions)
 
         base_sql += " ORDER BY score DESC LIMIT :top_k"
 
-        async with AsyncSessionLocal() as db:
+        async with self.sessionmaker() as db:
             result = await db.execute(text(base_sql), params)
             rows = result.fetchall()
 
@@ -135,10 +146,10 @@ class PGSparseStore(SparseStore):
             WHERE document_id = ANY(:document_ids)
         """)
 
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(sql, {"document_ids": document_ids})
-            await db.commit()
-        return result.rowcount or 0
+        async with self.sessionmaker() as db:
+            async with db.begin():
+                result = await db.execute(sql, {"document_ids": document_ids})
+                return result.rowcount or 0
 
     async def delete_by_file_id(self, file_id: str) -> int:
         sql = text(f"""
@@ -146,7 +157,7 @@ class PGSparseStore(SparseStore):
             WHERE file_id = :file_id
         """)
 
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(sql, {"file_id": file_id})
-            await db.commit()
-        return result.rowcount or 0
+        async with self.sessionmaker() as db:
+            async with db.begin():
+                result = await db.execute(sql, {"file_id": file_id})
+                return result.rowcount or 0

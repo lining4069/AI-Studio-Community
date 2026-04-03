@@ -103,7 +103,7 @@ class KnowledgeBaseService:
             rag_service = await create_rag_index_service(kb)
             files, _ = await self.file_repo.list_by_kb(kb_id, user_id, 1, 10000)
             for f in files:
-                rag_service.delete_document(f.id)
+                await rag_service.delete_document(f.id)
         except Exception as e:
             logger.error(f"Failed to delete from vector store: {e}")
 
@@ -199,7 +199,7 @@ class KnowledgeBaseService:
         # Delete from vector store
         try:
             rag_service = await create_rag_index_service(kb)
-            rag_service.delete_document(file_id)
+            await rag_service.delete_document(file_id)
         except Exception as e:
             logger.error(f"Failed to delete from vector store: {e}")
 
