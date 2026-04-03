@@ -1,5 +1,6 @@
 """Document Loader — 支持多种文件类型加载"""
 
+from collections.abc import Callable
 from pathlib import Path
 
 from langchain_community.document_loaders import (
@@ -20,7 +21,7 @@ class DocumentLoader:
     使用 loader 工厂模式，按文件扩展名路由到对应加载器
     """
 
-    _LOADER_FACTORIES: dict[str, callable] = {
+    _LOADER_FACTORIES: dict[str, Callable] = {
         ".txt": lambda path, enc: TextLoader(path, encoding=enc),
         ".md": lambda path, enc: TextLoader(path, encoding=enc),
         ".pdf": lambda path, enc: PyPDFLoader(path),
@@ -29,9 +30,7 @@ class DocumentLoader:
         ".jsonl": lambda path, enc: JSONLoader(path, jq_schema=".", json_lines=True),
     }
 
-    def load(
-        self, file_path: str | Path, encoding: str = "utf-8"
-    ) -> list[Document]:
+    def load(self, file_path: str | Path, encoding: str = "utf-8") -> list[Document]:
         """
         加载文件，返回 LangChain Document 列表
 
