@@ -65,9 +65,7 @@ class RAGRetrievalService:
 
         原查询：{query}"""
 
-        response = await self.llm_provider.achat([
-            {"role": "user", "content": prompt}
-        ])
+        response = await self.llm_provider.achat([{"role": "user", "content": prompt}])
 
         queries = [q.strip() for q in response.split("\n") if q.strip()]
         return queries[:n] if queries else [query]
@@ -76,27 +74,27 @@ class RAGRetrievalService:
     # Hybrid Retrieval
     # ===================================================================
 
-    def _dense_retrieve(
+    async def _dense_retrieve(
         self,
         query_embedding: list[float],
         top_k: int,
         metadata_filter: dict[str, Any] | None = None,
     ) -> list[tuple[DocumentUnit, float]]:
         """稠密检索"""
-        return self.dense_store.retrieve(
+        return await self.dense_store.retrieve(
             query_embedding=query_embedding,
             top_k=top_k,
             metadata_filter=metadata_filter,
         )
 
-    def _sparse_retrieve(
+    async def _sparse_retrieve(
         self,
         query: str,
         top_k: int,
         metadata_filter: dict[str, Any] | None = None,
     ) -> list[tuple[DocumentUnit, float]]:
         """稀疏检索"""
-        return self.sparse_store.retrieve(
+        return await self.sparse_store.retrieve(
             query=query,
             top_k=top_k,
             metadata_filter=metadata_filter,
@@ -131,15 +129,19 @@ class RAGRetrievalService:
         query_embedding = await self.embedding_provider.aembed_query(query)
 
         # 2. Parallel retrieval
-        dense_results = self._dense_retrieve(query_embedding, top_k, metadata_filter)
-        sparse_results = self._sparse_retrieve(query, top_k, metadata_filter)
+        dense_results = await self._dense_retrieve(
+            query_embedding, top_k, metadata_filter
+        )
+        sparse_results = await self._sparse_retrieve(query, top_k, metadata_filter)
 
         # 3. RRF fusion
         fused = self._rrf_fusion(dense_results, sparse_results, vector_weight)
 
         # 4. Apply similarity threshold (dense scores are normalized [0,1] in RRF)
         if similarity_threshold > 0:
-            fused = [(doc, score) for doc, score in fused if score >= similarity_threshold]
+            fused = [
+                (doc, score) for doc, score in fused if score >= similarity_threshold
+            ]
 
         # 5. Rerank if enabled
         if enable_rerank and self.reranker_provider:
@@ -240,7 +242,9 @@ class RAGRetrievalService:
             query_embedding = await self.embedding_provider.aembed_query(q)
 
             # 3. 并行检索
-            dense_results = self._dense_retrieve(query_embedding, top_k, metadata_filter)
+            dense_results = self._dense_retrieve(
+                query_embedding, top_k, metadata_filter
+            )
             sparse_results = self._sparse_retrieve(q, top_k, metadata_filter)
 
             # 4. RRF 融合
@@ -354,7 +358,9 @@ class RAGRetrievalService:
         if conversation_history:
             for turn in conversation_history[-3:]:
                 messages.append({"role": "user", "content": turn.get("question", "")})
-                messages.append({"role": "assistant", "content": turn.get("answer", "")})
+                messages.append(
+                    {"role": "assistant", "content": turn.get("answer", "")}
+                )
         messages.append({"role": "user", "content": prompt})
 
         return await self.llm_provider.achat(messages)
@@ -408,11 +414,13 @@ class RAGRetrievalService:
             documents = documents[:rerank_top_k]
 
         # 3. Generation
-        sources = list({
-            doc.metadata.get("file_name", "Unknown")
-            for doc in documents
-            if doc.metadata.get("file_name")
-        })
+        sources = list(
+            {
+                doc.metadata.get("file_name", "Unknown")
+                for doc in documents
+                if doc.metadata.get("file_name")
+            }
+        )
 
         if self.llm_provider:
             answer = await self.generate(
@@ -422,8 +430,6 @@ class RAGRetrievalService:
                 conversation_history=conversation_history,
             )
         else:
-            answer = "\n\n".join(
-                [f"{doc.content[:200]}..." for doc in documents]
-            )
+            answer = "\n\n".join([f"{doc.content[:200]}..." for doc in documents])
 
         return answer, documents, sources

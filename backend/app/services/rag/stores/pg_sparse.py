@@ -61,8 +61,9 @@ class PGSparseStore(SparseStore):
             (:id, :document_id, :kb_id, :file_id, :content, :tokens, :metadata)
         """)
 
-        async with self.sessionmaker() as db:
-            async with db.begin():
+        session = self.sessionmaker()
+        try:
+            async with session.begin():
                 for chunk in self._chunk_generator(docs, MAX_BATCH_SIZE):
                     payload = []
                     for doc in chunk:
@@ -80,7 +81,9 @@ class PGSparseStore(SparseStore):
                                 else {},
                             }
                         )
-                    await db.execute(insert_sql, payload)
+                    await session.execute(insert_sql, payload)
+        finally:
+            await session.close()
 
     # ========================
     # 检索（BM25 + metadata）
@@ -91,7 +94,6 @@ class PGSparseStore(SparseStore):
         top_k: int = 10,
         metadata_filter: dict[str, Any] | None = None,
     ) -> list[tuple[DocumentUnit, float]]:
-
         query_tokens = self._tokenize(query)
 
         base_sql = f"""
@@ -120,9 +122,12 @@ class PGSparseStore(SparseStore):
 
         base_sql += " ORDER BY score DESC LIMIT :top_k"
 
-        async with self.sessionmaker() as db:
-            result = await db.execute(text(base_sql), params)
+        session = self.sessionmaker()
+        try:
+            result = await session.execute(text(base_sql), params)
             rows = result.fetchall()
+        finally:
+            await session.close()
 
         return [
             (
@@ -150,10 +155,13 @@ class PGSparseStore(SparseStore):
             WHERE document_id = ANY(:document_ids)
         """)
 
-        async with self.sessionmaker() as db:
-            async with db.begin():
-                result = await db.execute(sql, {"document_ids": document_ids})
+        session = self.sessionmaker()
+        try:
+            async with session.begin():
+                result = await session.execute(sql, {"document_ids": document_ids})
                 return result.rowcount or 0
+        finally:
+            await session.close()
 
     async def delete_by_file_id(self, file_id: str) -> int:
         sql = text(f"""
@@ -161,7 +169,10 @@ class PGSparseStore(SparseStore):
             WHERE file_id = :file_id
         """)
 
-        async with self.sessionmaker() as db:
-            async with db.begin():
-                result = await db.execute(sql, {"file_id": file_id})
+        session = self.sessionmaker()
+        try:
+            async with session.begin():
+                result = await session.execute(sql, {"file_id": file_id})
                 return result.rowcount or 0
+        finally:
+            await session.close()

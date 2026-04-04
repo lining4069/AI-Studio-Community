@@ -77,8 +77,9 @@ class PGDenseStore(DenseStore):
             getattr(self.embedding_provider, "batch_size", 10), MAX_EMBEDDING_BATCH
         )
 
-        async with self.sessionmaker() as db:
-            async with db.begin():  # 事务保护
+        session = self.sessionmaker()
+        try:
+            async with session.begin():
                 for chunk in self._chunk_generator(docs, batch_size):
                     texts = [doc.content for doc in chunk]
 
@@ -86,13 +87,10 @@ class PGDenseStore(DenseStore):
                         embeddings = await self.embedding_provider.aembed(texts)
                     except Exception as e:
                         logger.error(f"Embedding API failed for batch: {e}")
-                        # 对应批次 embeddings 全置为 0 向量，避免中断
                         embeddings = [
                             [0.0] * self.embedding_provider.dimension for _ in chunk
                         ]
 
-                    # 构造批量 INSERT VALUES
-                    # list[float] → str('[v1,v2,...]')，用 ::vector 让 PG 解析
                     rows: list[tuple[Any, ...]] = []
                     for doc, emb in zip(chunk, embeddings):
                         rows.append(
@@ -101,7 +99,7 @@ class PGDenseStore(DenseStore):
                                 doc.kb_id,
                                 doc.file_id,
                                 doc.content,
-                                self._vec_to_str(emb),  # str，PG 用 ::vector 解析
+                                self._vec_to_str(emb),
                                 doc.metadata,
                             )
                         )
@@ -113,7 +111,7 @@ class PGDenseStore(DenseStore):
                         f"INSERT INTO {self.table_name} ({cols}) VALUES (:id, :document_id, :kb_id, :file_id, :content, cast(:embedding as vector), :metadata)"
                     )
                     for row in rows:
-                        await db.execute(
+                        await session.execute(
                             single_insert_sql,
                             {
                                 "id": row[0],
@@ -125,6 +123,8 @@ class PGDenseStore(DenseStore):
                                 "metadata": json.dumps(row[5]) if row[5] else {},
                             },
                         )
+        finally:
+            await session.close()
 
     # -------------------------
     # 检索
@@ -135,45 +135,72 @@ class PGDenseStore(DenseStore):
         top_k: int = 10,
         metadata_filter: dict[str, Any] | None = None,
     ) -> list[tuple[DocumentUnit, float]]:
-        base_sql = f"""
-        SELECT id, document_id, kb_id, file_id, content, metadata,
-               1 - (embedding <=> cast(:embedding as vector)) AS score
-        FROM {self.table_name}
+        """
+        向量检索（已修复 pgvector + WHERE 过滤问题）
+
+        - 先 WHERE 过滤（子查询）
+        - 再向量排序（保证命中）
+        - 支持 metadata 过滤
+        - 安全参数绑定
         """
 
+        # -------- 参数 --------
         params: dict[str, Any] = {
             "embedding": self._vec_to_str(query_embedding),
-            "top_k": top_k,
+            "top_k": int(top_k or 10),
         }
 
+        # -------- WHERE 构造 --------
+        where_sql = ""
         if metadata_filter:
             conditions = []
             for i, (key, value) in enumerate(metadata_filter.items()):
                 safe_key = re.sub(r"[^a-zA-Z0-9_]", "", key)
                 if not safe_key:
                     continue
+
                 param_key = f"meta_{i}"
                 conditions.append(f"metadata ->> '{safe_key}' = :{param_key}")
                 params[param_key] = str(value)
+
             if conditions:
-                base_sql += " WHERE " + " AND ".join(conditions)
+                where_sql = "WHERE " + " AND ".join(conditions)
 
-        base_sql += " ORDER BY embedding <=> cast(:embedding as vector) LIMIT :top_k"
+        # -------- 核心 SQL（子查询修复执行顺序）--------
+        base_sql = f"""
+        SELECT id, document_id, kb_id, file_id, content, metadata,
+            1 - (embedding <=> cast(:embedding as vector)) AS score
+        FROM (
+            SELECT id, document_id, kb_id, file_id, content, metadata, embedding
+            FROM {self.table_name}
+            {where_sql}
+        ) AS filtered
+        ORDER BY embedding <=> cast(:embedding as vector)
+        LIMIT :top_k
+        """
 
-        async with self.sessionmaker() as db:
-            result = await db.execute(text(base_sql), params)
-            rows = await result.fetchall()
+        # -------- 执行 --------
+        session = self.sessionmaker()
+        try:
+            result = await session.execute(text(base_sql), params)
 
+            # 🔥 推荐：直接用 mappings，避免 Row 坑
+            rows = result.mappings().all()
+
+        finally:
+            await session.close()
+
+        # -------- 组装结果 --------
         return [
             (
                 DocumentUnit(
-                    document_id=row.document_id,
-                    kb_id=row.kb_id,
-                    file_id=row.file_id,
-                    content=row.content,
-                    metadata=row.metadata or {},
+                    document_id=row["document_id"],
+                    kb_id=row["kb_id"],
+                    file_id=row["file_id"],
+                    content=row["content"],
+                    metadata=row["metadata"] or {},
                 ),
-                float(row.score),
+                float(row["score"]),
             )
             for row in rows
         ]
@@ -190,10 +217,13 @@ class PGDenseStore(DenseStore):
             WHERE document_id = ANY(:document_ids)
         """)
 
-        async with self.sessionmaker() as db:
-            async with db.begin():
-                result = await db.execute(sql, {"document_ids": document_ids})
+        session = self.sessionmaker()
+        try:
+            async with session.begin():
+                result = await session.execute(sql, {"document_ids": document_ids})
                 return result.rowcount or 0
+        finally:
+            await session.close()
 
     async def delete_by_file_id(self, file_id: str) -> int:
         sql = text(f"""
@@ -201,7 +231,10 @@ class PGDenseStore(DenseStore):
             WHERE file_id = :file_id
         """)
 
-        async with self.sessionmaker() as db:
-            async with db.begin():
-                result = await db.execute(sql, {"file_id": file_id})
+        session = self.sessionmaker()
+        try:
+            async with session.begin():
+                result = await session.execute(sql, {"file_id": file_id})
                 return result.rowcount or 0
+        finally:
+            await session.close()
