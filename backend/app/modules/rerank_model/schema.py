@@ -11,7 +11,7 @@ class RerankModelBase(BaseModel):
     """Base schema for Rerank model"""
 
     name: str = Field(..., min_length=1, max_length=255)
-    provider: str = Field(default="openai_compatible")
+    provider: str = Field(default="dashscope")
     model_name: str | None = Field(None, max_length=255)
     base_url: str | None = Field(None, max_length=500)
     api_key: str | None = Field(None)

@@ -4,12 +4,20 @@ Rerank Model database models.
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.base import Base
 from app.utils.datetime_utils import now_utc
+
+
+class RerankType(StrEnum):
+    """Embedding type enum"""
+
+    COCHEHERE_COMPATIBLE = "cohere_compatible"  # cohere
+    DASHSCOPE = "dashscope"  # dashscope
 
 
 class RerankModel(Base):
@@ -24,7 +32,7 @@ class RerankModel(Base):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     provider: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="openai_compatible"
+        String(50), nullable=False, default=RerankType.DASHSCOPE.value
     )
 
     model_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

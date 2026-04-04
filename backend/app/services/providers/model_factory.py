@@ -11,18 +11,17 @@ Reference: PAI-RAG backend/service/factory/model_factory.py
 from loguru import logger
 
 from app.modules.embedding_model.models import EmbeddingModel, EmbeddingType
-from app.modules.llm_model.models import LlmModel
-from app.modules.rerank_model.models import RerankModel
-from app.utils.encrypt_utils import decrypt_api_key
-from app.utils.lru_cache import LruCache
-
-from .base import EmbeddingProvider, LLMProvider, RerankerProvider
-from .huggingface import HuggingFaceEmbeddingProvider
-from .openai_compatible import (
-    CohereRerankerProvider,
+from app.modules.llm_model.models import LlmModel, LLMType
+from app.modules.rerank_model.models import RerankModel, RerankType
+from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
+from app.services.providers.huggingface import HuggingFaceEmbeddingProvider
+from app.services.providers.openai_compatible import (
     OpenAICompatibleEmbeddingProvider,
     OpenAICompatibleLLMProvider,
 )
+from app.services.providers.reranks import CohereRerankerProvider
+from app.utils.encrypt_utils import decrypt_api_key
+from app.utils.lru_cache import LruCache
 
 # ============================================================================
 # LRU Caches for Model Instances
@@ -93,7 +92,7 @@ def create_llm(model: LlmModel) -> LLMProvider:
     api_key = decrypt_api_key(model.encrypted_api_key or "")
 
     # Create provider based on type
-    if model.provider == "openai_compatible":
+    if model.provider == LLMType.OPENAI_COMPATIBLE:
         provider = OpenAICompatibleLLMProvider(
             api_key=api_key,
             base_url=model.base_url or "",
@@ -101,6 +100,8 @@ def create_llm(model: LlmModel) -> LLMProvider:
             temperature=model.temperature,
             max_tokens=model.max_tokens,
         )
+    elif model.provider == LLMType.LOCAL:
+        logger.warning("Local LLM provider not supported yet")
     else:
         raise ValueError(f"Unsupported LLM provider: {model.provider}")
 
@@ -133,12 +134,7 @@ def create_embedding(model: EmbeddingModel) -> EmbeddingProvider:
     logger.info(f"Creating new Embedding provider: {model.name} ({model.type})")
 
     # Create provider based on type
-    if model.type == EmbeddingType.LOCAL:
-        provider = HuggingFaceEmbeddingProvider(
-            model_name=model.local_model_path or model.model_name or "",
-            batch_size=model.batch_size,
-        )
-    elif model.type == EmbeddingType.OPENAI_COMPATIBLE:
+    if model.type == EmbeddingType.OPENAI_COMPATIBLE:
         api_key = decrypt_api_key(model.encrypted_api_key or "")
         provider = OpenAICompatibleEmbeddingProvider(
             api_key=api_key,
@@ -147,6 +143,11 @@ def create_embedding(model: EmbeddingModel) -> EmbeddingProvider:
             dimension=model.dimension,
             batch_size=model.batch_size,
             is_dimensionable=model.is_dimensionable,
+        )
+    elif model.type == EmbeddingType.LOCAL:
+        provider = HuggingFaceEmbeddingProvider(
+            model_name=model.local_model_path or model.model_name or "",
+            batch_size=model.batch_size,
         )
     else:
         raise ValueError(f"Unsupported Embedding type: {model.type}")
@@ -183,13 +184,15 @@ def create_reranker(model: RerankModel) -> RerankerProvider:
     api_key = decrypt_api_key(model.encrypted_api_key or "")
 
     # Create provider based on type
-    if model.provider == "openai_compatible":
+    if model.provider == RerankType.COCHEHERE_COMPATIBLE:
         provider = CohereRerankerProvider(
             api_key=api_key,
             base_url=model.base_url or "",
             model=model.model_name or "cohere-rerank",
             top_n=model.top_n,
         )
+    elif model.provider == RerankType.DASHSCOPE:
+        logger.warning("DasgScope Reranker provider not supported yet")
     else:
         raise ValueError(f"Unsupported Reranker provider: {model.provider}")
 
