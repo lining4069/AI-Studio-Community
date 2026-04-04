@@ -169,10 +169,6 @@ class RAGRequest(RetrievalRequest):
         None,
         description="LLM model ID for answer generation. If not provided, only retrieval is performed.",
     )
-    prompt: str | None = Field(
-        None,
-        description="Custom prompt template. Use {context} and {question} as placeholders.",
-    )
     history: list[dict] | None = Field(
         default_factory=list, description="Conversation history for multi-turn RAG"
     )
@@ -183,7 +179,4 @@ class RAGResponse(BaseModel):
 
     answer: str
     results: list[RetrievalResult]
-    sources: list[str] = Field(
-        default_factory=list, description="Source file names used in generation"
-    )
     query: str

@@ -16,7 +16,7 @@ from app.utils.datetime_utils import now_utc
 class RerankType(StrEnum):
     """Embedding type enum"""
 
-    COCHEHERE_COMPATIBLE = "cohere_compatible"  # cohere
+    COHERE_COMPATIBLE = "cohere_compatible"  # cohere
     DASHSCOPE = "dashscope"  # dashscope
 
 

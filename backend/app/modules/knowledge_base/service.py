@@ -369,7 +369,6 @@ class KnowledgeBaseService:
             config.rerank_top_k = kb.rerank_top_k
 
         all_results: list[RetrievalResult] = []
-        all_sources: set[str] = set()
 
         if request.llm_model_id:
             # Full RAG: use rag() which does retrieve + generate
@@ -377,17 +376,15 @@ class KnowledgeBaseService:
                 kb, llm_model_id=request.llm_model_id
             )
 
-            answer, docs, sources = await rag_service.rag(
+            answer, docs, _ = await rag_service.rag(
                 query=request.query,
                 top_k=config.top_k,
                 vector_weight=config.vector_weight,
                 metadata_filter={"kb_id": kb.id},
                 enable_rerank=config.enable_rerank,
                 rerank_top_k=config.rerank_top_k,
-                prompt_template=request.prompt,
                 conversation_history=request.history,
             )
-            all_sources = set(sources)
             all_results = [
                 RetrievalResult(
                     chunk_id=doc.document_id,
@@ -424,8 +421,6 @@ class KnowledgeBaseService:
                             metadata=doc.metadata,
                         )
                     )
-                    if doc.metadata.get("file_name"):
-                        all_sources.add(doc.metadata["file_name"])
 
             all_results.sort(key=lambda x: x.score, reverse=True)
             all_results = all_results[: config.rerank_top_k or config.top_k]
@@ -438,6 +433,5 @@ class KnowledgeBaseService:
         return RAGResponse(
             answer=answer,
             results=all_results,
-            sources=list(all_sources),
             query=request.query,
         )

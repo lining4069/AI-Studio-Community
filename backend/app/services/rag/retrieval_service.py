@@ -1,5 +1,6 @@
 """RAG Retrieval Service — 混合检索和 RAG 管道"""
 
+import asyncio
 from typing import Any
 
 from app.services.providers.base import EmbeddingProvider, LLMProvider, RerankerProvider
@@ -242,10 +243,10 @@ class RAGRetrievalService:
             query_embedding = await self.embedding_provider.aembed_query(q)
 
             # 3. 并行检索
-            dense_results = self._dense_retrieve(
-                query_embedding, top_k, metadata_filter
+            dense_results, sparse_results = await asyncio.gather(
+                self._dense_retrieve(query_embedding, top_k, metadata_filter),
+                self._sparse_retrieve(q, top_k, metadata_filter),
             )
-            sparse_results = self._sparse_retrieve(q, top_k, metadata_filter)
 
             # 4. RRF 融合
             fused = self._rrf_fusion(dense_results, sparse_results, vector_weight)

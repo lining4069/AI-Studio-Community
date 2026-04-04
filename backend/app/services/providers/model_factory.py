@@ -184,7 +184,7 @@ def create_reranker(model: RerankModel) -> RerankerProvider:
     api_key = decrypt_api_key(model.encrypted_api_key or "")
 
     # Create provider based on type
-    if model.provider == RerankType.COCHEHERE_COMPATIBLE:
+    if model.provider == RerankType.COHERE_COMPATIBLE:
         provider = CohereRerankerProvider(
             api_key=api_key,
             base_url=model.base_url or "",
