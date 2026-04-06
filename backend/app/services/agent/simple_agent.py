@@ -30,6 +30,7 @@ class SimpleAgent:
         tools: list[Any],
         system_prompt: str | None = None,
         max_loop: int = 1,
+        run_id: str | None = None,
     ) -> None:
         """
         Initialize SimpleAgent.
@@ -39,11 +40,13 @@ class SimpleAgent:
             tools: List of Tool instances
             system_prompt: Optional custom system prompt
             max_loop: Maximum execution loop (default 1 for Phase 1)
+            run_id: Optional run identifier for SSE event tracking
         """
         self.llm = llm
         self.tools = {t.name: t for t in tools}
         self.system_prompt = system_prompt
         self.max_loop = max_loop
+        self.run_id = run_id
 
     def _build_llm_tools(self) -> list[dict]:
         """Convert Tool list to LLM function calling format."""
@@ -58,6 +61,11 @@ class SimpleAgent:
             }
             for t in self.tools.values()
         ]
+
+    def _event(self, event_type: str, data: dict) -> AgentEvent:
+        """Create AgentEvent with run_id included in data."""
+        data_with_run = {**data, "run_id": self.run_id} if self.run_id else data
+        return AgentEvent(event=event_type, data=data_with_run)
 
     async def _execute_tool_call(
         self, tool_name: str, arguments: dict
@@ -236,11 +244,8 @@ class SimpleAgent:
                 llm_step.status = "success"
                 state.add_step(llm_step)
 
-                yield AgentEvent(event="step_start", data=llm_step.to_dict())
-                yield AgentEvent(
-                    event="tool_call",
-                    data={"tool": tool_name, "arguments": arguments},
-                )
+                yield self._event("step_start", llm_step.to_dict())
+                yield self._event("tool_call", {"tool": tool_name, "arguments": arguments})
 
                 # Execute tool
                 tool_step = Step(type="tool", name=tool_name, input=arguments)
@@ -254,10 +259,7 @@ class SimpleAgent:
                 state.add_step(tool_step)
 
                 # Yield tool result event
-                yield AgentEvent(
-                    event="tool_result",
-                    data={"tool": tool_name, "result": tool_result},
-                )
+                yield self._event("tool_result", {"tool": tool_name, "result": tool_result})
 
                 # Feed tool result back to LLM for final response
                 messages.append({
@@ -283,7 +285,7 @@ class SimpleAgent:
                 final_llm_step.status = "success"
                 state.add_step(final_llm_step)
 
-                yield AgentEvent(event="content", data={"content": final_response.get("content", "")})
+                yield self._event("content", {"content": final_response.get("content", "")})
 
                 state.output = final_response.get("content", "")
                 state.finished = True
@@ -293,16 +295,16 @@ class SimpleAgent:
                 llm_step.output = {"content": response.get("content", "")}
                 llm_step.status = "success"
                 state.add_step(llm_step)
-                yield AgentEvent(event="step_start", data=llm_step.to_dict())
-                yield AgentEvent(event="content", data={"content": response.get("content", "")})
+                yield self._event("step_start", llm_step.to_dict())
+                yield self._event("content", {"content": response.get("content", "")})
 
         except Exception as e:
             logger.error(f"LLM call error: {e}")
             llm_step.status = "error"
             llm_step.error = str(e)
             state.add_step(llm_step)
-            yield AgentEvent(event="error", data={"error": str(e)})
-            yield AgentEvent(event="run_end", data={"summary": state.summary})
+            yield self._event("error", {"error": str(e)})
+            yield self._event("run_end", {"summary": state.summary})
             return
 
-        yield AgentEvent(event="run_end", data={"summary": state.summary})
+        yield self._event("run_end", {"summary": state.summary})

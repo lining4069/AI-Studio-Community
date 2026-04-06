@@ -1,6 +1,7 @@
 """Agent service - business logic and orchestration."""
 import asyncio
 import json
+import uuid
 from typing import Any, AsyncGenerator
 
 from fastapi.responses import StreamingResponse
@@ -241,8 +242,11 @@ class AgentService:
             summary=session.summary,
         )
 
+        # Generate run_id for SSE event tracking
+        run_id = uuid.uuid4().hex
+
         # Run streaming agent
-        agent = SimpleAgent(llm=llm, tools=tools)
+        agent = SimpleAgent(llm=llm, tools=tools, run_id=run_id)
 
         async def event_generator() -> AsyncGenerator[bytes, None]:
             # Persist user message first
@@ -264,6 +268,21 @@ class AgentService:
                     role="assistant",
                     content=final_state.output,
                 )
+
+            # Persist all steps after streaming completes (BUG FIX)
+            if final_state and final_state.steps:
+                for step in final_state.steps:
+                    await self.repo.create_step(
+                        session_id=session_id,
+                        step_index=step.step_index,
+                        type=step.type,
+                        name=step.name,
+                        input=step.input,
+                        output=step.output,
+                        status=step.status,
+                        error=step.error,
+                        latency_ms=step.latency_ms,
+                    )
 
         return StreamingResponse(
             event_generator(),
