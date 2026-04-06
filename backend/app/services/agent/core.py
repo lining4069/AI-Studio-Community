@@ -5,6 +5,7 @@ These are runtime state objects, NOT ORM models.
 """
 from dataclasses import dataclass, field
 from typing import Any
+import json
 
 
 # =============================================================================
@@ -50,6 +51,7 @@ class Step:
             "thought": self.thought,
             "error": self.error,
             "latency_ms": self.latency_ms,
+            "step_index": self.step_index,
         }
 
 
