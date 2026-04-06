@@ -89,7 +89,7 @@ class AgentRepository:
             session_id=session_id,
             role=role,
             content=content,
-            metadata=metadata or {},
+            msg_metadata=metadata or {},
         )
         self.db.add(message)
         await self.db.flush()
