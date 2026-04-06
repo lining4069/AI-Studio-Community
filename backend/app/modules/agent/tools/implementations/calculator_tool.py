@@ -75,5 +75,5 @@ class CalculatorTool(Tool):
             result = self._eval_expr(tree)
             # Convert to float for consistency
             return {"result": float(result)}
-        except (ValueError, SyntaxError, ZeroDivisionError) as e:
+        except (ValueError, SyntaxError, ZeroDivisionError, TypeError) as e:
             return {"error": str(e)}
