@@ -1,11 +1,12 @@
 """Agent data access layer."""
-from datetime import datetime
+
 from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agent.models import AgentMessage, AgentSession, AgentStep
+from app.utils.datetime_utils import now_utc
 
 
 class AgentRepository:
@@ -48,7 +49,7 @@ class AgentRepository:
         stmt = (
             update(AgentSession)
             .where(AgentSession.id == session_id)
-            .values(summary=summary, updated_at=datetime.utcnow())
+            .values(summary=summary, updated_at=now_utc())
         )
         await self.db.execute(stmt)
         await self.db.flush()
@@ -57,8 +58,10 @@ class AgentRepository:
         self, user_id: int, page: int = 1, page_size: int = 20
     ) -> tuple[list[AgentSession], int]:
         """List sessions for user (paginated)."""
-        count_stmt = select(func.count()).select_from(AgentSession).where(
-            AgentSession.user_id == user_id
+        count_stmt = (
+            select(func.count())
+            .select_from(AgentSession)
+            .where(AgentSession.user_id == user_id)
         )
         total = (await self.db.execute(count_stmt)).scalar_one()
 

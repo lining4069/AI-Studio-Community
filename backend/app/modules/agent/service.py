@@ -1,8 +1,8 @@
 """Agent service - business logic and orchestration."""
-import asyncio
-import json
+
 import uuid
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -15,11 +15,11 @@ from app.modules.agent.schema import (
     AgentSessionCreate,
     AgentSessionResponse,
 )
-from app.services.agent.core import AgentEvent, AgentState
+from app.modules.llm_model.repository import LlmModelRepository
+from app.services.agent.core import AgentState
 from app.services.agent.factories import create_agent_tools
 from app.services.agent.simple_agent import SimpleAgent
 from app.services.providers.model_factory import create_llm
-from app.modules.llm_model.repository import LlmModelRepository
 
 
 class AgentService:
@@ -52,9 +52,7 @@ class AgentService:
         )
         return AgentSessionResponse.model_validate(session)
 
-    async def get_session(
-        self, session_id: str, user_id: int
-    ) -> AgentSession:
+    async def get_session(self, session_id: str, user_id: int) -> AgentSession:
         """Get session or raise NotFoundException."""
         session = await self.repo.get_session(session_id, user_id)
         if not session:
@@ -87,9 +85,7 @@ class AgentService:
             for m in messages
         ]
 
-    async def get_steps(
-        self, session_id: str, user_id: int
-    ) -> list[dict]:
+    async def get_steps(self, session_id: str, user_id: int) -> list[dict]:
         """Get execution steps for a session."""
         await self.get_session(session_id, user_id)
         steps = await self.repo.get_steps(session_id)
@@ -171,7 +167,7 @@ class AgentService:
         for step in result_state.steps:
             await self.repo.create_step(
                 session_id=session_id,
-                step_index=step.step_index,
+                step_index=step.step_index or 0,
                 type=step.type,
                 name=step.name,
                 input=step.input,
@@ -256,25 +252,25 @@ class AgentService:
                 content=request.input,
             )
 
-            final_state = None
+            # Stream events - state object is mutated in place by stream_run
             async for event in agent.stream_run(state):
-                final_state = event.state
                 yield event.to_sse().encode("utf-8")
 
-            # Persist assistant response after streaming completes
-            if final_state and final_state.output:
+            # After streaming completes, state contains all data
+            # Persist assistant response
+            if state.output:
                 await self.repo.create_message(
                     session_id=session_id,
                     role="assistant",
-                    content=final_state.output,
+                    content=state.output,
                 )
 
-            # Persist all steps after streaming completes (BUG FIX)
-            if final_state and final_state.steps:
-                for step in final_state.steps:
+            # Persist all steps
+            if state.steps:
+                for step in state.steps:
                     await self.repo.create_step(
                         session_id=session_id,
-                        step_index=step.step_index,
+                        step_index=step.step_index or 0,
                         type=step.type,
                         name=step.name,
                         input=step.input,
@@ -294,9 +290,7 @@ class AgentService:
             },
         )
 
-    async def _get_llm_for_session(
-        self, session: AgentSession, user_id: int
-    ):
+    async def _get_llm_for_session(self, session: AgentSession, user_id: int):
         """
         Get LLM provider for session.
 

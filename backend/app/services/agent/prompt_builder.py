@@ -3,6 +3,7 @@ Prompt builder for constructing LLM messages with memory.
 
 Builds: [summary] + [recent messages] + [tools] + [user input]
 """
+
 from typing import Any
 
 

@@ -3,6 +3,7 @@ Factory functions for creating Agent tools.
 
 Creates tool list based on configuration (KB IDs, etc).
 """
+
 from typing import Any
 
 from app.modules.agent.tools.base import Tool

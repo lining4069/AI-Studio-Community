@@ -3,10 +3,10 @@ Agent core data structures: Step, AgentState, AgentEvent.
 
 These are runtime state objects, NOT ORM models.
 """
+
+import json
 from dataclasses import dataclass, field
 from typing import Any
-import json
-
 
 # =============================================================================
 # Step - Minimal Execution Unit
@@ -127,5 +127,4 @@ class AgentEvent:
 
     def to_sse(self) -> str:
         """Convert to SSE format string."""
-        import json
         return f"event: {self.event}\ndata: {json.dumps(self.data)}\n\n"

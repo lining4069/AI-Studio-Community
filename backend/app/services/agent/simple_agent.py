@@ -3,8 +3,10 @@ SimpleAgent - Phase 1 lightweight Agent with 1-loop execution.
 
 LLM → Tool? → Execute → LLM (max 1 iteration)
 """
+
 import time
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from loguru import logger
 
@@ -67,9 +69,7 @@ class SimpleAgent:
         data_with_run = {**data, "run_id": self.run_id} if self.run_id else data
         return AgentEvent(event=event_type, data=data_with_run)
 
-    async def _execute_tool_call(
-        self, tool_name: str, arguments: dict
-    ) -> dict:
+    async def _execute_tool_call(self, tool_name: str, arguments: dict) -> dict:
         """Execute a tool and return result."""
         tool = self.tools.get(tool_name)
         if not tool:
@@ -82,9 +82,7 @@ class SimpleAgent:
             logger.error(f"Tool execution error: {tool_name} - {e}")
             return {"error": str(e)}
 
-    async def run(
-        self, state: AgentState
-    ) -> AgentState:
+    async def run(self, state: AgentState) -> AgentState:
         """
         Run the Agent loop.
 
@@ -145,21 +143,27 @@ class SimpleAgent:
 
                     tool_result = await self._execute_tool_call(tool_name, arguments)
                     tool_step.output = tool_result
-                    tool_step.status = "success" if "error" not in tool_result else "error"
+                    tool_step.status = (
+                        "success" if "error" not in tool_result else "error"
+                    )
                     tool_step.latency_ms = int((time.time() - tool_start) * 1000)
                     state.add_step(tool_step)
 
                     # Feed tool result back to LLM
-                    messages.append({
-                        "role": "assistant",
-                        "content": response.get("content", ""),
-                        "tool_calls": [tool_call],
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call["id"],
-                        "content": str(tool_result),
-                    })
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": response.get("content", ""),
+                            "tool_calls": [tool_call],
+                        }
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": str(tool_result),
+                        }
+                    )
 
                     # Store in scratchpad
                     state.tool_results[tool_name] = tool_result
@@ -191,9 +195,7 @@ class SimpleAgent:
 
         return state
 
-    async def stream_run(
-        self, state: AgentState
-    ) -> AsyncGenerator[AgentEvent, None]:
+    async def stream_run(self, state: AgentState) -> AsyncGenerator[AgentEvent, None]:
         """
         Streaming version of run() that yields SSE events.
 
@@ -245,7 +247,9 @@ class SimpleAgent:
                 state.add_step(llm_step)
 
                 yield self._event("step_start", llm_step.to_dict())
-                yield self._event("tool_call", {"tool": tool_name, "arguments": arguments})
+                yield self._event(
+                    "tool_call", {"tool": tool_name, "arguments": arguments}
+                )
 
                 # Execute tool
                 tool_step = Step(type="tool", name=tool_name, input=arguments)
@@ -259,19 +263,25 @@ class SimpleAgent:
                 state.add_step(tool_step)
 
                 # Yield tool result event
-                yield self._event("tool_result", {"tool": tool_name, "result": tool_result})
+                yield self._event(
+                    "tool_result", {"tool": tool_name, "result": tool_result}
+                )
 
                 # Feed tool result back to LLM for final response
-                messages.append({
-                    "role": "assistant",
-                    "content": response.get("content", ""),
-                    "tool_calls": [tool_call],
-                })
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": str(tool_result),
-                })
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": response.get("content", ""),
+                        "tool_calls": [tool_call],
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call["id"],
+                        "content": str(tool_result),
+                    }
+                )
 
                 # Store in scratchpad
                 state.tool_results[tool_name] = tool_result
@@ -285,7 +295,9 @@ class SimpleAgent:
                 final_llm_step.status = "success"
                 state.add_step(final_llm_step)
 
-                yield self._event("content", {"content": final_response.get("content", "")})
+                yield self._event(
+                    "content", {"content": final_response.get("content", "")}
+                )
 
                 state.output = final_response.get("content", "")
                 state.finished = True

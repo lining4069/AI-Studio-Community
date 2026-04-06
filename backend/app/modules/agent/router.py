@@ -1,4 +1,5 @@
 """Agent API routes."""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -8,15 +9,12 @@ from app.dependencies import CurrentUser
 from app.dependencies.infras import DBAsyncSession
 from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
-    AgentMessageResponse,
     AgentRunRequest,
     AgentSessionCreate,
     AgentSessionResponse,
-    AgentStepResponse,
 )
 from app.modules.agent.service import AgentService
 from app.modules.llm_model.repository import LlmModelRepository
-
 
 router = APIRouter()
 
@@ -44,7 +42,9 @@ AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 # =============================================================================
 
 
-@router.post("/sessions", response_model=APIResponse[AgentSessionResponse], status_code=201)
+@router.post(
+    "/sessions", response_model=APIResponse[AgentSessionResponse], status_code=201
+)
 async def create_session(
     data: AgentSessionCreate,
     current_user: CurrentUser,

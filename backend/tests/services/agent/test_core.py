@@ -1,13 +1,13 @@
 import pytest
 import importlib.util
 from dataclasses import asdict
+from pathlib import Path
 
 # Direct module load to avoid triggering app.services.__init__.py which has heavy imports
 # that require settings environment variables
-_spec = importlib.util.spec_from_file_location(
-    "app.services.agent.core",
-    "/Users/lining/Documents/full-stack_engineer/Full-StackWorkspace/AI-Studio-Community/backend/.worktrees/agent-system/backend/app/services/agent/core.py"
-)
+BASE = Path(__file__).parent.parent.parent.parent
+_core_path = BASE / "app" / "services" / "agent" / "core.py"
+_spec = importlib.util.spec_from_file_location("app.services.agent.core", _core_path)
 _core = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_core)
 
