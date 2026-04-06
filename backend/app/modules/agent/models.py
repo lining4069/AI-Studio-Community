@@ -70,7 +70,7 @@ class AgentSession(Base, TimestampMixin):
 # ============================================================================
 
 
-class AgentMessage(Base):
+class AgentMessage(Base, TimestampMixin):
     """
     Agent conversation message.
 
@@ -92,9 +92,6 @@ class AgentMessage(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     msg_metadata: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
 
     def __repr__(self):
         return f"<AgentMessage(id={self.id}, role={self.role})>"
@@ -105,7 +102,7 @@ class AgentMessage(Base):
 # ============================================================================
 
 
-class AgentStep(Base):
+class AgentStep(Base, TimestampMixin):
     """
     Agent execution step trace.
 
@@ -145,9 +142,6 @@ class AgentStep(Base):
     status: Mapped[str] = mapped_column(String(20), default=StepStatus.PENDING.value)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
 
     def __repr__(self):
         return f"<AgentStep(id={self.id}, type={self.type}, status={self.status})>"
