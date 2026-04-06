@@ -40,20 +40,7 @@ class AgentSessionResponse(AgentSessionBase):
 # =============================================================================
 
 
-class AgentMessageBase(BaseModel):
-    """Base schema for Agent Message"""
-
-    role: str
-    content: str
-
-
-class AgentMessageCreate(AgentMessageBase):
-    """Schema for creating Agent Message"""
-
-    session_id: str
-
-
-class AgentMessageResponse(AgentMessageBase):
+class AgentMessageResponse(BaseModel):
     """Schema for Agent Message response"""
 
     model_config = ConfigDict(from_attributes=True)
