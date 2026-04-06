@@ -175,6 +175,8 @@ class AgentService:
                 input=step.input,
                 output=step.output,
                 status=step.status,
+                error=step.error,
+                latency_ms=step.latency_ms,
             )
 
         # Update session summary if needed
