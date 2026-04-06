@@ -121,6 +121,8 @@ class AgentRepository:
         input: dict | None = None,
         output: dict | None = None,
         status: str = "pending",
+        error: str | None = None,
+        latency_ms: int | None = None,
     ) -> AgentStep:
         """Create a new step record."""
         step = AgentStep(
@@ -131,6 +133,8 @@ class AgentRepository:
             input=input or {},
             output=output,
             status=status,
+            error=error,
+            latency_ms=latency_ms,
         )
         self.db.add(step)
         await self.db.flush()
