@@ -20,7 +20,7 @@ class AgentSessionBase(BaseModel):
 class AgentSessionCreate(AgentSessionBase):
     """Schema for creating Agent Session"""
 
-    user_id: int
+    pass
 
 
 class AgentSessionResponse(AgentSessionBase):
