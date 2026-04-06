@@ -184,6 +184,26 @@ class AgentService:
         if result_state.summary:
             await self.repo.update_summary(session_id, result_state.summary)
 
+        # Generate summary if conversation has enough messages
+        # Build full message list including new exchange
+        all_messages = history + [
+            {"role": "user", "content": request.input},
+            {"role": "assistant", "content": result_state.output or ""},
+        ]
+        if len(all_messages) >= 3:  # Only if meaningful conversation
+            new_summary = await self._generate_summary(
+                messages=all_messages,
+                llm=llm,
+            )
+            if new_summary:
+                # Merge with existing summary
+                combined_summary = (
+                    (session.summary + "\n" + new_summary)
+                    if session.summary
+                    else new_summary
+                )
+                await self.repo.update_summary(session_id, combined_summary)
+
         return result_state.to_result()
 
     async def stream_agent(
@@ -270,3 +290,40 @@ class AgentService:
             raise ValueError("No LLM model configured")
 
         return create_llm(models[0])
+
+    async def _generate_summary(
+        self,
+        messages: list[dict],
+        llm: Any,
+    ) -> str | None:
+        """
+        Generate conversation summary using LLM.
+
+        Called when conversation ends or periodically for long sessions.
+        """
+        if len(messages) < 3:
+            return None  # Not enough context for summary
+
+        try:
+            # Build summary prompt
+            summary_prompt = (
+                "Summarize the following conversation concisely in 2-3 sentences. "
+                "Focus on the main topics discussed and any key conclusions.\n\n"
+            )
+            for msg in messages[-10:]:  # Last 10 messages
+                summary_prompt += f"{msg['role']}: {msg['content'][:200]}\n"
+
+            summary_response = await llm.achat(
+                messages=[{"role": "user", "content": summary_prompt}],
+                tools=None,
+            )
+
+            if isinstance(summary_response, dict):
+                return summary_response.get("content", "").strip()
+            elif isinstance(summary_response, str):
+                return summary_response.strip()
+            return str(summary_response)
+
+        except Exception as e:
+            logger.warning(f"Summary generation failed: {e}")
+            return None
