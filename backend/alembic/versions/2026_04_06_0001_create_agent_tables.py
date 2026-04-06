@@ -32,26 +32,25 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
     )
-    op.create_index('ix_agent_sessions_user_id', 'agent_sessions', ['user_id'])
 
     # --- agent_messages ---
     op.create_table(
         'agent_messages',
         sa.Column('id', sa.String(length=64), nullable=False, primary_key=True),
         sa.Column('session_id', sa.String(length=64), nullable=False),
-        sa.Column('role', sa.String(length=20), nullable=False),
+        sa.Column('role', sa.String(length=20), nullable=False, index=True),
         sa.Column('content', sa.Text(), nullable=False),
         sa.Column('metadata', sa.JSON(), nullable=False, server_default='{}'),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.ForeignKeyConstraint(['session_id'], ['agent_sessions.id'], ondelete='CASCADE'),
     )
-    op.create_index('ix_agent_messages_session_id', 'agent_messages', ['session_id'])
+    op.create_index('ix_agent_messages_session_id_created_at', 'agent_messages', ['session_id', 'created_at'])
 
     # --- agent_steps ---
     op.create_table(
         'agent_steps',
         sa.Column('id', sa.String(length=64), nullable=False, primary_key=True),
-        sa.Column('session_id', sa.String(length=64), nullable=False),
+        sa.Column('session_id', sa.String(length=64), nullable=False, index=True),
         sa.Column('step_index', sa.Integer(), nullable=False),
         sa.Column('type', sa.String(length=20), nullable=False),
         sa.Column('name', sa.String(length=100), nullable=True),
@@ -64,15 +63,17 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.ForeignKeyConstraint(['session_id'], ['agent_sessions.id'], ondelete='CASCADE'),
     )
-    op.create_index('ix_agent_steps_session_id', 'agent_steps', ['session_id'])
+    op.create_index('ix_agent_steps_session_step', 'agent_steps', ['session_id', 'step_index'])
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_index('ix_agent_steps_session_step', table_name='agent_steps')
     op.drop_index('ix_agent_steps_session_id', table_name='agent_steps')
     op.drop_table('agent_steps')
 
-    op.drop_index('ix_agent_messages_session_id', table_name='agent_messages')
+    op.drop_index('ix_agent_messages_session_id_created_at', table_name='agent_messages')
+    op.drop_index('ix_agent_messages_role', table_name='agent_messages')
     op.drop_table('agent_messages')
 
     op.drop_index('ix_agent_sessions_user_id', table_name='agent_sessions')
