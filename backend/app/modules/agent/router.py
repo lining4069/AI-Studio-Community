@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.common.responses import APIResponse, PageData
+from app.common.responses import APIResponse
 from app.dependencies import CurrentUser
 from app.dependencies.infras import DBAsyncSession
 from app.modules.agent.repository import AgentRepository

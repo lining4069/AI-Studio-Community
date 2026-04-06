@@ -95,6 +95,7 @@ class AgentService:
         return [
             {
                 "id": s.id,
+                "session_id": s.session_id,
                 "step_index": s.step_index,
                 "type": s.type,
                 "name": s.name,
@@ -231,8 +232,18 @@ class AgentService:
                 content=request.input,
             )
 
+            final_state = None
             async for event in agent.stream_run(state):
+                final_state = event.state
                 yield event.to_sse().encode("utf-8")
+
+            # Persist assistant response after streaming completes
+            if final_state and final_state.output:
+                await self.repo.create_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=final_state.output,
+                )
 
         return StreamingResponse(
             event_generator(),
