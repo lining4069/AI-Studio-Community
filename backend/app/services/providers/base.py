@@ -48,7 +48,7 @@ class LLMProvider(ABC):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         **kwargs,
-    ) -> str:
+    ) -> dict[str, Any]:
         """
         Non-streaming chat completion.
 
@@ -57,7 +57,8 @@ class LLMProvider(ABC):
             tools: Optional list of tool definitions
 
         Returns:
-            Complete response string
+            Dict with 'content' (str) and optional 'tool_calls' (list) keys.
+            When the model requests tool execution, 'tool_calls' will be present.
         """
         pass
 
