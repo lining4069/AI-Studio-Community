@@ -1,6 +1,7 @@
 # 汇总api
 from fastapi import FastAPI
 
+from app.modules.agent.router import router as agent_router
 from app.modules.auth.router import router as auth_router
 from app.modules.embedding_model.router import router as embedding_model_router
 from app.modules.knowledge_base.router import router as kb_router
@@ -33,3 +34,4 @@ def register_model_routers(app: FastAPI):
 def register_application_routers(app: FastAPI):
     """注册上层应用相关路由"""
     app.include_router(kb_router, prefix="/v1/knowledge-bases", tags=["知识库"])
+    app.include_router(agent_router, prefix="/v1/agent", tags=["Agent"])
