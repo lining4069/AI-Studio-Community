@@ -89,7 +89,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         **kwargs,
-    ) -> str:
+    ) -> dict[str, Any]:
         """Non-streaming chat completion"""
         try:
             result = await self._http.chat_completions(
@@ -103,13 +103,19 @@ class OpenAICompatibleLLMProvider(LLMProvider):
             )
 
             choices = result.get("choices", [])
-            if choices and choices[0].get("message", {}).get("content"):
-                return choices[0]["message"]["content"]
-            return ""
+            if choices:
+                message = choices[0].get("message", {})
+                content = message.get("content", "")
+                tool_calls = message.get("tool_calls")
+                return {
+                    "content": content,
+                    "tool_calls": tool_calls,
+                }
+            return {"content": "", "tool_calls": None}
 
         except Exception as e:
             logger.error(f"OpenAI-compatible LLM error: {e}")
-            return f"Error: {str(e)}"
+            return {"content": f"Error: {str(e)}", "tool_calls": None}
 
 
 # ============================================================================

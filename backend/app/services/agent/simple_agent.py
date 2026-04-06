@@ -3,7 +3,6 @@ SimpleAgent - Phase 1 lightweight Agent with 1-loop execution.
 
 LLM → Tool? → Execute → LLM (max 1 iteration)
 """
-import asyncio
 import time
 from typing import Any, AsyncGenerator
 
@@ -102,7 +101,6 @@ class SimpleAgent:
 
         # Loop (max 1 for Phase 1)
         loop_count = 0
-        current_output = ""
 
         while loop_count < self.max_loop:
             loop_count += 1
@@ -118,8 +116,11 @@ class SimpleAgent:
                     tools=self._build_llm_tools() if self.tools else None,
                 )
 
+                # Record latency before potential break
+                llm_step.latency_ms = int((time.time() - start_time) * 1000)
+
                 # Check if LLM returned a tool call (OpenAI function calling format)
-                if isinstance(response, dict) and response.get("tool_calls"):
+                if response.get("tool_calls"):
                     # Extract tool call
                     tool_call = response["tool_calls"][0]
                     tool_name = tool_call["function"]["name"]
@@ -127,6 +128,7 @@ class SimpleAgent:
 
                     # Record tool call
                     llm_step.output = {"tool_call": tool_name, "arguments": arguments}
+                    llm_step.status = "success"
                     state.add_step(llm_step)
 
                     # Execute tool
@@ -156,7 +158,7 @@ class SimpleAgent:
 
                 else:
                     # Direct response (no tool call)
-                    current_output = response if isinstance(response, str) else str(response)
+                    current_output = response.get("content", "")
                     llm_step.output = {"content": current_output}
                     llm_step.status = "success"
                     state.add_step(llm_step)
@@ -173,8 +175,6 @@ class SimpleAgent:
                 state.finished = True
                 break
 
-            llm_step.latency_ms = int((time.time() - start_time) * 1000)
-
         return state
 
     async def stream_run(
@@ -183,28 +183,83 @@ class SimpleAgent:
         """
         Streaming version of run() that yields SSE events.
 
+        Uses achat() internally since astream() does not provide structured
+        tool call data. Yields proper step events rather than fake tokens.
+
         Args:
             state: AgentState with user_input and session_id
 
         Yields:
             AgentEvent for SSE streaming
         """
+        # Build system prompt
+        system_prompt = self.system_prompt or build_system_prompt(
+            summary=state.summary,
+            tools=self._build_llm_tools(),
+        )
+
+        # Build initial messages
+        messages = build_messages(
+            user_input=state.user_input,
+            history=state.messages,
+            system_prompt=system_prompt,
+        )
+
         yield AgentEvent(event="step_start", data={"type": "llm", "name": self.llm.provider_name})
 
         try:
-            result_state = await self.run(state)
+            # Call LLM with tools
+            response = await self.llm.achat(
+                messages=messages,
+                tools=self._build_llm_tools() if self.tools else None,
+            )
 
-            for step in result_state.steps:
-                if step.type == "tool":
-                    yield AgentEvent(
-                        event="tool_result",
-                        data={"tool": step.name, "result": step.output},
-                    )
-                elif step.output and "content" in step.output:
-                    for token in step.output["content"].split():
-                        yield AgentEvent(event="token", data={"token": token})
+            # Check if LLM returned a tool call
+            if response.get("tool_calls"):
+                # Extract tool call
+                tool_call = response["tool_calls"][0]
+                tool_name = tool_call["function"]["name"]
+                arguments = tool_call["function"]["arguments"]
 
-            yield AgentEvent(event="run_end", data={"summary": result_state.summary})
+                # Yield tool call event
+                yield AgentEvent(
+                    event="tool_call",
+                    data={"tool": tool_name, "arguments": arguments},
+                )
+
+                # Execute tool
+                tool_result = await self._execute_tool_call(tool_name, arguments)
+
+                # Yield tool result event
+                yield AgentEvent(
+                    event="tool_result",
+                    data={"tool": tool_name, "result": tool_result},
+                )
+
+                # Feed tool result back to LLM for final response
+                messages.append({
+                    "role": "assistant",
+                    "content": response.get("content", ""),
+                    "tool_calls": [tool_call],
+                })
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": str(tool_result),
+                })
+
+                # Store in scratchpad
+                state.tool_results[tool_name] = tool_result
+
+                # Get final LLM response after tool execution
+                final_response = await self.llm.achat(messages=messages)
+                yield AgentEvent(event="content", data={"content": final_response.get("content", "")})
+
+            else:
+                # Direct response (no tool call)
+                yield AgentEvent(event="content", data={"content": response.get("content", "")})
 
         except Exception as e:
             yield AgentEvent(event="error", data={"error": str(e)})
+
+        yield AgentEvent(event="run_end", data={"summary": state.summary})
