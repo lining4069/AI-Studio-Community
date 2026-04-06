@@ -64,7 +64,7 @@ class HttpClient:
             self._client = None
 
     # -------------------------------------------------------------------------
-    # Chat Completions
+    # Chat Completions API -> 做了OenAI兼容的API提供商的 /chat/completions
     # -------------------------------------------------------------------------
 
     async def chat_completions(
@@ -136,7 +136,7 @@ class HttpClient:
                 yield chunk
 
     # -------------------------------------------------------------------------
-    # Embeddings
+    # Embeddings API -> 做了OenAI兼容的API提供商的 /embeddings
     # -------------------------------------------------------------------------
 
     async def embeddings(
@@ -172,7 +172,7 @@ class HttpClient:
         return [item["embedding"] for item in result.get("data", [])]
 
     # -------------------------------------------------------------------------
-    # Rerank
+    # Rerank API -> OpenAI 没有Rerank API这里自定义rerank
     # -------------------------------------------------------------------------
 
     async def rerank(
