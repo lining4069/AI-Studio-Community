@@ -32,9 +32,11 @@ def build_system_prompt(
     if tools:
         parts.append("\nAvailable Tools:")
         for tool in tools:
+            # Support both flat format and LLM function calling format
+            fn = tool.get("function", tool)
             parts.append(
-                f"- {tool['name']}: {tool['description']} "
-                f"(params: {tool.get('parameters', {})})"
+                f"- {fn['name']}: {fn['description']} "
+                f"(params: {fn.get('parameters', {})})"
             )
 
     return "\n".join(parts)
