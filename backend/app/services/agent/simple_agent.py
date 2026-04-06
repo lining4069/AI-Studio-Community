@@ -285,6 +285,9 @@ class SimpleAgent:
 
                 yield AgentEvent(event="content", data={"content": final_response.get("content", "")})
 
+                state.output = final_response.get("content", "")
+                state.finished = True
+
             else:
                 # Direct response (no tool call)
                 llm_step.output = {"content": response.get("content", "")}
@@ -299,5 +302,7 @@ class SimpleAgent:
             llm_step.error = str(e)
             state.add_step(llm_step)
             yield AgentEvent(event="error", data={"error": str(e)})
+            yield AgentEvent(event="run_end", data={"summary": state.summary})
+            return
 
         yield AgentEvent(event="run_end", data={"summary": state.summary})

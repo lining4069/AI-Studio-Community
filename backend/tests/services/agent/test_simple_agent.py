@@ -7,10 +7,10 @@ import importlib.util
 import sys
 
 # Load core module directly to avoid settings issues
-_spec = importlib.util.spec_from_file_location(
-    "app.services.agent.core",
-    "/Users/lining/Documents/full-stack_engineer/Full-StackWorkspace/AI-Studio-Community/backend/.worktrees/agent-system/backend/app/services/agent/core.py"
-)
+from pathlib import Path
+BASE = Path(__file__).parent.parent.parent.parent
+_core_path = BASE / "app" / "services" / "agent" / "core.py"
+_spec = importlib.util.spec_from_file_location("app.services.agent.core", _core_path)
 _core = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_core)
 sys.modules['app.services.agent.core'] = _core
@@ -36,10 +36,8 @@ sys.modules['loguru'].logger = MagicMock()
 sys.modules['loguru'].logger.error = MagicMock()
 
 # Now load simple_agent directly
-_spec = importlib.util.spec_from_file_location(
-    "app.services.agent.simple_agent",
-    "/Users/lining/Documents/full-stack_engineer/Full-StackWorkspace/AI-Studio-Community/backend/.worktrees/agent-system/backend/app/services/agent/simple_agent.py"
-)
+_simple_agent_path = BASE / "app" / "services" / "agent" / "simple_agent.py"
+_spec = importlib.util.spec_from_file_location("app.services.agent.simple_agent", _simple_agent_path)
 _simple_agent = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_simple_agent)
 
