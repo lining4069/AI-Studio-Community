@@ -6,7 +6,26 @@ These are runtime state objects, NOT ORM models.
 
 import json
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
+
+
+# =============================================================================
+# Event Type Enum - Avoid hardcoded strings
+# =============================================================================
+
+
+class AgentEventType(StrEnum):
+    """Agent SSE event types - must match SSE protocol."""
+
+    STEP_START = "step_start"
+    STEP_END = "step_end"
+    CONTENT = "content"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    RUN_END = "run_end"
+    ERROR = "error"
+
 
 # =============================================================================
 # Step - Minimal Execution Unit
@@ -125,9 +144,10 @@ class AgentEvent:
     Represents a single event in the event stream.
     """
 
-    event: str
+    event: AgentEventType
     data: dict
 
     def to_sse(self) -> str:
         """Convert to SSE format string."""
-        return f"event: {self.event}\ndata: {json.dumps(self.data)}\n\n"
+        # SSE "data" field should NOT include "event" type - it's in SSE protocol header
+        return f"event: {self.event.value}\ndata: {json.dumps(self.data, ensure_ascii=False)}\n\n"

@@ -16,7 +16,7 @@ from app.modules.agent.schema import (
     AgentSessionResponse,
 )
 from app.modules.llm_model.repository import LlmModelRepository
-from app.services.agent.core import AgentState
+from app.services.agent.core import AgentEventType, AgentState
 from app.services.agent.factories import create_agent_tools
 from app.services.agent.simple_agent import SimpleAgent
 from app.services.providers.model_factory import create_llm
@@ -344,74 +344,11 @@ class AgentService:
 
             # Stream events - now yields (Step, AgentEvent) tuples
             async for step, event in agent.stream_run(state):
-                # Inject run_id into ALL events for frontend observability
-                event.data["run_id"] = run.id
-
-                if event.event == "step_start" and step is not None:
-                    # step_start: INSERT step record with status=running
-                    db_step = await self.repo.create_step(
-                        session_id=session_id,
-                        run_id=run.id,
-                        step_index=step.step_index,
-                        type=step.type,
-                        name=step.name,
-                        step_input=step.input,
-                        status="running",
-                        idempotency_key=f"{run.id}:{step.step_index}:{step.type}",
-                    )
-                    # Assign DB-assigned id back to step object
-                    step.id = db_step.id
-
-                    # Inject step_id into step_start event data (step.id now available)
-                    # Remove misleading "id: null" from event data (keep only step_id)
-                    event.data.pop("id", None)
-                    event.data["step_id"] = step.id
-                    event.data["step_index"] = step.step_index
-
-                elif event.event == "step_end" and step is not None:
-                    # step_end: UPDATE step record with final status/output
-                    event_data = event.data
-                    await self.repo.update_step(
-                        step_id=step.id,
-                        status=event_data.get("status"),
-                        output=event_data.get("output"),
-                        latency_ms=event_data.get("latency_ms"),
-                        error=event_data.get("error"),
-                    )
-                    # Inject step_id into step_end event data
-                    event.data["step_id"] = step.id
-                    event.data["step_index"] = event_data.get("step_index")
-
-                elif event.event == "tool_call" and step is not None:
-                    # tool_call event: include step context for frontend
-                    event.data["step_id"] = step.id
-                    event.data["step_index"] = step.step_index
-
-                elif event.event == "tool_result" and step is not None:
-                    # tool_result event: include step context
-                    event.data["step_id"] = step.id
-                    event.data["step_index"] = step.step_index
-
-                elif event.event == "content" and step is not None:
-                    # content event (from LLM): include step context
-                    event.data["step_id"] = step.id
-                    event.data["step_index"] = step.step_index
-
-                elif event.event == "error":
-                    # error event: include step context if available
-                    if step is not None:
-                        event.data["step_id"] = step.id
-                        event.data["step_index"] = step.step_index
-
-                # Forward event to SSE client (regardless of step tuple)
-                yield event.to_sse().encode("utf-8")
-
-                if event.event == "run_end":
-                    # CRITICAL: Persist ALL data BEFORE yielding run_end
-                    # If we yield run_end first, client may disconnect and
-                    # subsequent persistence code will be cancelled.
-
-                    # 1. Persist assistant message
+                # Handle run_end specially: persist data BEFORE yield
+                # This ensures data is saved even if client disconnects
+                if event.event == AgentEventType.RUN_END:
+                    # CRITICAL: All persistence MUST happen before yield
+                    # 1. Persist assistant message using state.output (not event.data)
                     if state.output:
                         await self.repo.create_message(
                             session_id=session_id,
@@ -420,9 +357,7 @@ class AgentService:
                             content=state.output,
                         )
 
-                    # 2. Generate summary using incremental compression strategy:
-                    #    summary = summarize(previous_summary + recent_messages)
-                    #    Only compress recent 2-4 messages, not full history
+                    # 2. Generate summary using incremental compression
                     current_exchange = [
                         {"role": "user", "content": request.input},
                         {"role": "assistant", "content": state.output or ""},
@@ -446,6 +381,67 @@ class AgentService:
                         status="success" if state.finished else "error",
                         output=state.output,
                     )
+
+                    # 4. Update event data with summary for SSE
+                    event.data["summary"] = new_summary or session.summary
+                    event.data["run_id"] = run.id
+
+                    # 5. Yield run_end SSE
+                    yield event.to_sse().encode("utf-8")
+                    continue
+
+                # Inject run_id into event data
+                event.data["run_id"] = run.id
+
+                if event.event == AgentEventType.STEP_START and step is not None:
+                    # step_start: INSERT step record with status=running
+                    db_step = await self.repo.create_step(
+                        session_id=session_id,
+                        run_id=run.id,
+                        step_index=step.step_index,
+                        type=step.type,
+                        name=step.name,
+                        step_input=step.input,
+                        status="running",
+                        idempotency_key=f"{run.id}:{step.step_index}:{step.type}",
+                    )
+                    step.id = db_step.id
+                    event.data.pop("id", None)
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == AgentEventType.STEP_END and step is not None:
+                    # step_end: UPDATE step record
+                    event_data = event.data
+                    await self.repo.update_step(
+                        step_id=step.id,
+                        status=event_data.get("status"),
+                        output=event_data.get("output"),
+                        latency_ms=event_data.get("latency_ms"),
+                        error=event_data.get("error"),
+                    )
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = event_data.get("step_index")
+
+                elif event.event == AgentEventType.TOOL_CALL and step is not None:
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == AgentEventType.TOOL_RESULT and step is not None:
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == AgentEventType.CONTENT and step is not None:
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == AgentEventType.ERROR:
+                    if step is not None:
+                        event.data["step_id"] = step.id
+                        event.data["step_index"] = step.step_index
+
+                # Forward event to SSE client
+                yield event.to_sse().encode("utf-8")
 
         return StreamingResponse(
             event_generator(),
