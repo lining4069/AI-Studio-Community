@@ -1,7 +1,8 @@
 """RAG retrieval tool for querying knowledge bases."""
+
 from typing import Any
 
-from app.modules.agent.tools.base import Tool
+from app.services.agent.tools.base import Tool
 
 
 class RAGRetrievalTool(Tool):
@@ -17,7 +18,7 @@ class RAGRetrievalTool(Tool):
         "Use this when the user asks about information that might be in the knowledge base. "
         "Returns the most relevant document chunks with scores."
     )
-    schema: dict = {
+    input_schema: dict = {
         "type": "object",
         "properties": {
             "kb_ids": {

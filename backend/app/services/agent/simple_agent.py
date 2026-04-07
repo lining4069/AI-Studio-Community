@@ -12,6 +12,7 @@ from loguru import logger
 
 from app.services.agent.core import AgentEvent, AgentEventType, AgentState, Step
 from app.services.agent.prompt_builder import build_messages, build_system_prompt
+from app.services.agent.tools.adapters import to_openai_tools
 from app.services.providers.base import LLMProvider
 
 
@@ -51,18 +52,9 @@ class SimpleAgent:
         self.run_id = run_id
 
     def _build_llm_tools(self) -> list[dict]:
-        """Convert Tool list to LLM function calling format."""
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.schema,
-                },
-            }
-            for t in self.tools.values()
-        ]
+        """Convert Tool list to OpenAI function calling format via adapter."""
+        specs = [t.to_spec() for t in self.tools.values()]
+        return to_openai_tools(specs)
 
     def _event(self, event_type: AgentEventType, data: dict) -> AgentEvent:
         """Create AgentEvent with run_id included in data."""

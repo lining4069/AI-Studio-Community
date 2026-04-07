@@ -1,7 +1,8 @@
 """DateTime tool for getting current date and time."""
-from datetime import datetime, timezone
 
-from app.modules.agent.tools.base import Tool
+from datetime import UTC, datetime
+
+from app.services.agent.tools.base import Tool
 
 
 class DateTimeTool(Tool):
@@ -16,7 +17,7 @@ class DateTimeTool(Tool):
         "Get the current date and time. "
         "Use this when you need to know the current date or time. No input required."
     )
-    schema: dict = {
+    input_schema: dict = {
         "type": "object",
         "properties": {},
         "required": [],
@@ -32,7 +33,7 @@ class DateTimeTool(Tool):
         Returns:
             dict with "datetime" (ISO format) and "timezone"
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return {
             "datetime": now.isoformat(),
             "timezone": "UTC",

@@ -6,8 +6,8 @@ Creates tool list based on configuration (KB IDs, etc).
 
 from typing import Any
 
-from app.modules.agent.tools.base import Tool
-from app.modules.agent.tools.implementations import (
+from app.services.agent.tools.base import Tool
+from app.services.agent.tools.implementations import (
     CalculatorTool,
     DateTimeTool,
     RAGRetrievalTool,

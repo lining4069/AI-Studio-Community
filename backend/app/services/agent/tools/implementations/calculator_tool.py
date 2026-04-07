@@ -1,9 +1,10 @@
 """Calculator tool for mathematical expression evaluation."""
+
 import ast
 import operator
 from typing import Any
 
-from app.modules.agent.tools.base import Tool
+from app.services.agent.tools.base import Tool
 
 
 class CalculatorTool(Tool):
@@ -19,7 +20,7 @@ class CalculatorTool(Tool):
         "Evaluate a mathematical expression. "
         "Use this for calculations. Input is a single expression string."
     )
-    schema: dict = {
+    input_schema: dict = {
         "type": "object",
         "properties": {
             "expression": {
