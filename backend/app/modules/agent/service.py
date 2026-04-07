@@ -634,6 +634,55 @@ class AgentService:
 
             # Stream events - with idempotency awareness
             async for step, event in agent.stream_run(state):
+                # Handle RUN_END specially: persist BEFORE yield
+                # This ensures data is saved even if client disconnects
+                if event.event == AgentEventType.RUN_END:
+                    # CRITICAL: All persistence MUST happen before yield
+                    # 1. Persist assistant message
+                    if state.output:
+                        await self.repo.create_message(
+                            session_id=original_run.session_id,
+                            run_id=new_run.id,
+                            role="assistant",
+                            content=state.output,
+                        )
+
+                    # 2. Generate summary
+                    current_exchange = [
+                        {"role": "user", "content": request.input},
+                        {"role": "assistant", "content": state.output or ""},
+                    ]
+                    new_summary = await self._generate_summary(
+                        messages=current_exchange,
+                        llm=llm,
+                        previous_summary=session.summary,
+                    )
+                    if new_summary:
+                        combined_summary = (
+                            (session.summary + "\n" + new_summary)
+                            if session.summary
+                            else new_summary
+                        )
+                        await self.repo.update_summary(
+                            original_run.session_id, combined_summary
+                        )
+
+                    # 3. Mark new run as finished
+                    await self.repo.finish_run(
+                        run_id=new_run.id,
+                        status="success" if state.finished else "error",
+                        output=state.output,
+                    )
+
+                    # 4. Update event data with summary
+                    event.data["summary"] = new_summary or session.summary
+                    event.data["run_id"] = new_run.id
+                    event.data["original_run_id"] = run_id
+
+                    # 5. Yield RUN_END SSE
+                    yield event.to_sse().encode("utf-8")
+                    continue
+
                 # Inject run_id into all events
                 event.data["run_id"] = new_run.id
                 event.data["original_run_id"] = run_id  # For tracking lineage
@@ -709,44 +758,8 @@ class AgentService:
                     event.data["step_id"] = step.id
                     event.data["step_index"] = step.step_index
 
+                # Forward event to SSE client
                 yield event.to_sse().encode("utf-8")
-
-                if event.event == AgentEventType.RUN_END:
-                    # Persist assistant message
-                    if state.output:
-                        await self.repo.create_message(
-                            session_id=original_run.session_id,
-                            run_id=new_run.id,
-                            role="assistant",
-                            content=state.output,
-                        )
-
-                    # Generate summary
-                    current_exchange = [
-                        {"role": "user", "content": request.input},
-                        {"role": "assistant", "content": state.output or ""},
-                    ]
-                    new_summary = await self._generate_summary(
-                        messages=current_exchange,
-                        llm=llm,
-                        previous_summary=session.summary,
-                    )
-                    if new_summary:
-                        combined_summary = (
-                            (session.summary + "\n" + new_summary)
-                            if session.summary
-                            else new_summary
-                        )
-                        await self.repo.update_summary(
-                            original_run.session_id, combined_summary
-                        )
-
-                    # Mark new run as finished
-                    await self.repo.finish_run(
-                        run_id=new_run.id,
-                        status="success" if state.finished else "error",
-                        output=state.output,
-                    )
 
         return StreamingResponse(
             event_generator(),
