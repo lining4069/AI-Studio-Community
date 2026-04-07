@@ -249,7 +249,7 @@ class AgentService:
                 step_index=step.step_index or 0,
                 type=step.type,
                 name=step.name,
-                input=step.input,
+                step_input=step.input,
                 output=step.output,
                 status=step.status,
                 error=step.error,
