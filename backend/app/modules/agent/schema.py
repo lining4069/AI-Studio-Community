@@ -130,7 +130,9 @@ class AgentRunStepsResponse(BaseModel):
 class AgentResumeRequest(BaseModel):
     """Schema for resuming a run"""
 
-    input: str | None = Field(None, description="New input if continuing with different query")
+    input: str | None = Field(
+        None, description="New input if continuing with different query"
+    )
 
 
 class AgentStopResponse(BaseModel):

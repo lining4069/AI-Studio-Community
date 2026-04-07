@@ -11,7 +11,6 @@ from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
     AgentRunDetailResponse,
     AgentRunRequest,
-    AgentResumeRequest,
     AgentSessionCreate,
     AgentSessionResponse,
     AgentStopResponse,

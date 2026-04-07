@@ -398,7 +398,7 @@ class AgentService:
                     db_step = await self.repo.create_step(
                         session_id=session_id,
                         run_id=run.id,
-                        step_index=step.step_index,
+                        step_index=step.step_index or 0,
                         type=step.type,
                         name=step.name,
                         step_input=step.input,

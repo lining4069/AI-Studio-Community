@@ -1,10 +1,9 @@
 """Agent system database models."""
 
 import uuid
-from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.base import Base, TimestampMixin
@@ -151,7 +150,10 @@ class AgentMessage(Base, TimestampMixin):
 
     # Run ownership (Phase 2)
     run_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=True, index=True
+        String(64),
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
 
     role: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -189,7 +191,10 @@ class AgentStep(Base, TimestampMixin):
 
     # Run ownership (Phase 2)
     run_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=True, index=True
+        String(64),
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
 
     # Execution order (critical for replay, unique per run)
@@ -215,7 +220,9 @@ class AgentStep(Base, TimestampMixin):
 
     # Idempotency key for tool execution (Phase 2)
     # Format: sha256(f"{run_id}:{step_index}:{tool_name}")[:16]
-    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
 
     def __repr__(self):
         return f"<AgentStep(id={self.id}, type={self.type}, status={self.status})>"

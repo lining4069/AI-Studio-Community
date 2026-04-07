@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-
 # =============================================================================
 # Event Type Enum - Avoid hardcoded strings
 # =============================================================================

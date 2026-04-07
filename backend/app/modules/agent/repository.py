@@ -256,7 +256,9 @@ class AgentRepository:
             await self.db.execute(stmt)
             await self.db.flush()
 
-    async def get_steps(self, session_id: str, run_id: str | None = None) -> list[AgentStep]:
+    async def get_steps(
+        self, session_id: str, run_id: str | None = None
+    ) -> list[AgentStep]:
         """Get steps for a session or run, ordered by step_index."""
         if run_id:
             stmt = (
