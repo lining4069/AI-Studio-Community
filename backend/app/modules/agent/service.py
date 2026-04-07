@@ -159,6 +159,32 @@ class AgentService:
             for s in steps
         ]
 
+    async def stop_run(self, run_id: str, user_id: int) -> dict:
+        """
+        Stop an running run (marks as interrupted).
+
+        Note: This only works if the run is still streaming.
+        If the stream has already completed, this has no effect.
+        """
+        run = await self.repo.get_run(run_id, user_id)
+        if not run:
+            raise NotFoundException("AgentRun", run_id)
+
+        if run.status != "running":
+            # Already finished, cannot stop
+            return {
+                "id": run.id,
+                "status": run.status,
+                "message": f"Run already {run.status}",
+            }
+
+        await self.repo.update_run(run_id=run_id, status="interrupted")
+        return {
+            "id": run.id,
+            "status": "interrupted",
+            "message": "Run stop requested",
+        }
+
     # =========================================================================
     # Agent Execution
     # =========================================================================
@@ -499,3 +525,205 @@ class AgentService:
         except Exception as e:
             logger.warning(f"Summary generation failed: {e}")
             return None
+
+    # =========================================================================
+    # Resume (Phase 2)
+    # =========================================================================
+
+    async def resume_agent(
+        self,
+        run_id: str,
+        user_id: int,
+        request: AgentRunRequest,
+    ) -> StreamingResponse:
+        """
+        Resume an interrupted run from last successful step.
+
+        Resume strategy:
+        1. Get original run and verify ownership
+        2. Get successful steps to rebuild state
+        3. Create new run for continuation (original run stays as-is)
+        4. Stream from where we left off
+
+        SSOT principle: Don't restore state, rebuild it from facts.
+        """
+        # 1. Get original run
+        original_run = await self.repo.get_run(run_id, user_id)
+        if not original_run:
+            raise NotFoundException("AgentRun", run_id)
+
+        # 2. Get session for context
+        session = await self.get_session(original_run.session_id, user_id)
+
+        # 3. Get successful steps from original run (for state reconstruction)
+        all_steps = await self.repo.get_steps(
+            session_id=original_run.session_id, run_id=run_id
+        )
+        successful_steps = [s for s in all_steps if s.status == "success"]
+
+        # 4. Rebuild conversation history from successful steps
+        #    - Get messages from original run
+        #    - Append successful step outputs to scratchpad
+        db_messages = await self.repo.get_messages(original_run.session_id)
+        history = [{"role": m.role, "content": m.content} for m in db_messages]
+
+        # Rebuild tool_results from successful tool steps
+        tool_results: dict[str, Any] = {}
+        for step in successful_steps:
+            if step.type == "tool" and step.name and step.output:
+                tool_results[step.name] = step.output
+
+        # 5. Get KB IDs from session
+        kb_ids = getattr(session, "kb_ids", []) or []
+
+        # 6. Create LLM
+        llm = await self._get_llm_for_session(session, user_id)
+
+        # 7. Create tools
+        rag_service = None
+        tools = await create_agent_tools(kb_ids=kb_ids, rag_service=rag_service)
+
+        # 8. Build initial state from successful steps + summary
+        #    Skip all successful steps (they're already in history/scratchpad)
+        last_step_index = successful_steps[-1].step_index if successful_steps else -1
+
+        state = AgentState(
+            session_id=original_run.session_id,
+            user_input=request.input,
+            messages=history,
+            summary=session.summary,
+            tool_results=tool_results,
+        )
+
+        # 9. Generate new run_id for SSE tracking
+        new_run_id = uuid.uuid4().hex
+
+        # 10. Run streaming agent
+        agent = SimpleAgent(llm=llm, tools=tools, run_id=new_run_id)
+
+        async def event_generator() -> AsyncGenerator[bytes, None]:
+            # Create new run (continuation)
+            new_run = await self.repo.create_run(
+                session_id=original_run.session_id,
+                input=request.input,
+                trace_id=new_run_id,
+            )
+
+            # Mark original run as interrupted
+            await self.repo.update_run(
+                run_id=run_id,
+                status="interrupted",
+                last_step_index=last_step_index,
+            )
+
+            # Persist user message with new run_id
+            await self.repo.create_message(
+                session_id=original_run.session_id,
+                run_id=new_run.id,
+                role="user",
+                content=request.input,
+            )
+
+            # Stream events - with idempotency awareness
+            async for step, event in agent.stream_run(state):
+                # Inject run_id into all events
+                event.data["run_id"] = new_run.id
+                event.data["original_run_id"] = run_id  # For tracking lineage
+
+                if event.event == "step_start" and step is not None:
+                    # Check idempotency: skip if this step already succeeded
+                    if step.name:
+                        idempotency_key = f"{run_id}:{step.step_index}:{step.name}"
+                        existing = await self.repo.get_step_by_idempotency_key(
+                            idempotency_key
+                        )
+                        if existing and existing.status == "success":
+                            # Skip - step already succeeded in original run
+                            continue
+
+                    # Create step record
+                    db_step = await self.repo.create_step(
+                        session_id=original_run.session_id,
+                        run_id=new_run.id,
+                        step_index=step.step_index,
+                        type=step.type,
+                        name=step.name,
+                        step_input=step.input,
+                        status="running",
+                        idempotency_key=f"{new_run.id}:{step.step_index}:{step.name}"
+                        if step.name
+                        else None,
+                    )
+                    step.id = db_step.id
+                    event.data.pop("id", None)
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == "step_end" and step is not None:
+                    event_data = event.data
+                    await self.repo.update_step(
+                        step_id=step.id,
+                        status=event_data.get("status"),
+                        output=event_data.get("output"),
+                        latency_ms=event_data.get("latency_ms"),
+                        error=event_data.get("error"),
+                    )
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = event_data.get("step_index")
+
+                elif event.event in ("tool_call", "tool_result", "content") and step is not None:
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == "error" and step is not None:
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                yield event.to_sse().encode("utf-8")
+
+                if event.event == "run_end":
+                    # Persist assistant message
+                    if state.output:
+                        await self.repo.create_message(
+                            session_id=original_run.session_id,
+                            run_id=new_run.id,
+                            role="assistant",
+                            content=state.output,
+                        )
+
+                    # Generate summary
+                    current_exchange = [
+                        {"role": "user", "content": request.input},
+                        {"role": "assistant", "content": state.output or ""},
+                    ]
+                    new_summary = await self._generate_summary(
+                        messages=current_exchange,
+                        llm=llm,
+                        previous_summary=session.summary,
+                    )
+                    if new_summary:
+                        combined_summary = (
+                            (session.summary + "\n" + new_summary)
+                            if session.summary
+                            else new_summary
+                        )
+                        await self.repo.update_summary(
+                            original_run.session_id, combined_summary
+                        )
+
+                    # Mark new run as finished
+                    await self.repo.finish_run(
+                        run_id=new_run.id,
+                        status="success" if state.finished else "error",
+                        output=state.output,
+                    )
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )

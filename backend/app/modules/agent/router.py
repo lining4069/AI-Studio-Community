@@ -11,8 +11,10 @@ from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
     AgentRunDetailResponse,
     AgentRunRequest,
+    AgentResumeRequest,
     AgentSessionCreate,
     AgentSessionResponse,
+    AgentStopResponse,
 )
 from app.modules.agent.service import AgentService
 from app.modules.llm_model.repository import LlmModelRepository
@@ -115,6 +117,39 @@ async def get_run_steps(
     """Get all steps for a run."""
     steps = await service.get_run_steps(run_id, current_user.id)
     return APIResponse(data=steps)
+
+
+@router.post("/runs/{run_id}/resume")
+async def resume_agent(
+    run_id: str,
+    request: AgentRunRequest,
+    current_user: CurrentUser,
+    service: AgentServiceDep,
+):
+    """
+    Resume an interrupted run from last successful step.
+
+    Creates a new run that continues from where the original left off.
+    Original run is marked as 'interrupted'.
+    """
+    return await service.resume_agent(run_id, current_user.id, request)
+
+
+@router.post("/runs/{run_id}/stop", response_model=APIResponse[AgentStopResponse])
+async def stop_run(
+    run_id: str,
+    current_user: CurrentUser,
+    service: AgentServiceDep,
+):
+    """
+    Stop a running run (marks as interrupted).
+
+    Note: This marks the run as interrupted. If the stream is still
+    in progress, it will complete naturally. Future resume calls will
+    see the interrupted status.
+    """
+    result = await service.stop_run(run_id, current_user.id)
+    return APIResponse(data=result)
 
 
 # =============================================================================
