@@ -9,6 +9,7 @@ from app.dependencies import CurrentUser
 from app.dependencies.infras import DBAsyncSession
 from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
+    AgentRunDetailResponse,
     AgentRunRequest,
     AgentSessionCreate,
     AgentSessionResponse,
@@ -90,7 +91,34 @@ async def get_steps(
 
 
 # =============================================================================
-# Run Endpoint
+# Run Endpoints (Phase 2)
+# =============================================================================
+
+
+@router.get("/runs/{run_id}", response_model=APIResponse[AgentRunDetailResponse])
+async def get_run(
+    run_id: str,
+    current_user: CurrentUser,
+    service: AgentServiceDep,
+):
+    """Get a run by ID (includes ownership verification)."""
+    run = await service.get_run(run_id, current_user.id)
+    return APIResponse(data=run)
+
+
+@router.get("/runs/{run_id}/steps", response_model=APIResponse[list])
+async def get_run_steps(
+    run_id: str,
+    current_user: CurrentUser,
+    service: AgentServiceDep,
+):
+    """Get all steps for a run."""
+    steps = await service.get_run_steps(run_id, current_user.id)
+    return APIResponse(data=steps)
+
+
+# =============================================================================
+# Run Execution
 # =============================================================================
 
 

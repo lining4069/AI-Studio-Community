@@ -110,6 +110,56 @@ class AgentService:
         ]
 
     # =========================================================================
+    # Run Access (Phase 2)
+    # =========================================================================
+
+    async def get_run(self, run_id: str, user_id: int) -> dict:
+        """Get run by ID (verifies user ownership via session)."""
+        run = await self.repo.get_run(run_id, user_id)
+        if not run:
+            raise NotFoundException("AgentRun", run_id)
+        return {
+            "id": run.id,
+            "session_id": run.session_id,
+            "type": run.type,
+            "status": run.status,
+            "input": run.input,
+            "output": run.output,
+            "error": run.error,
+            "last_step_index": run.last_step_index,
+            "resumable": run.resumable,
+            "trace_id": run.trace_id,
+            "created_at": run.created_at.isoformat(),
+            "updated_at": run.updated_at.isoformat(),
+        }
+
+    async def get_run_steps(self, run_id: str, user_id: int) -> list[dict]:
+        """Get steps for a specific run (verifies user ownership via session)."""
+        # First verify run exists and belongs to user
+        run = await self.repo.get_run(run_id, user_id)
+        if not run:
+            raise NotFoundException("AgentRun", run_id)
+        # Pass session_id as required positional arg, run_id as filter
+        steps = await self.repo.get_steps(session_id=run.session_id, run_id=run_id)
+        return [
+            {
+                "id": s.id,
+                "session_id": s.session_id,
+                "run_id": s.run_id,
+                "step_index": s.step_index,
+                "type": s.type,
+                "name": s.name,
+                "input": s.input,
+                "output": s.output,
+                "status": s.status,
+                "error": s.error,
+                "latency_ms": s.latency_ms,
+                "created_at": s.created_at.isoformat(),
+            }
+            for s in steps
+        ]
+
+    # =========================================================================
     # Agent Execution
     # =========================================================================
 
@@ -331,25 +381,45 @@ class AgentService:
                 yield event.to_sse().encode("utf-8")
 
                 if event.event == "run_end":
-                    # Mark run as finished
+                    # CRITICAL: Persist ALL data BEFORE yielding run_end
+                    # If we yield run_end first, client may disconnect and
+                    # subsequent persistence code will be cancelled.
+
+                    # 1. Persist assistant message
+                    if state.output:
+                        await self.repo.create_message(
+                            session_id=session_id,
+                            run_id=run.id,
+                            role="assistant",
+                            content=state.output,
+                        )
+
+                    # 2. Generate summary using incremental compression strategy:
+                    #    summary = summarize(previous_summary + recent_messages)
+                    #    Only compress recent 2-4 messages, not full history
+                    current_exchange = [
+                        {"role": "user", "content": request.input},
+                        {"role": "assistant", "content": state.output or ""},
+                    ]
+                    new_summary = await self._generate_summary(
+                        messages=current_exchange,
+                        llm=llm,
+                        previous_summary=session.summary,
+                    )
+                    if new_summary:
+                        combined_summary = (
+                            (session.summary + "\n" + new_summary)
+                            if session.summary
+                            else new_summary
+                        )
+                        await self.repo.update_summary(session_id, combined_summary)
+
+                    # 3. Mark run as finished
                     await self.repo.finish_run(
                         run_id=run.id,
                         status="success" if state.finished else "error",
                         output=state.output,
                     )
-
-            # After streaming completes, persist assistant response
-            if state.output:
-                await self.repo.create_message(
-                    session_id=session_id,
-                    run_id=run.id,
-                    role="assistant",
-                    content=state.output,
-                )
-
-            # Update session summary if needed
-            if state.summary:
-                await self.repo.update_summary(session_id, state.summary)
 
         return StreamingResponse(
             event_generator(),
@@ -379,23 +449,41 @@ class AgentService:
         self,
         messages: list[dict],
         llm: Any,
+        previous_summary: str | None = None,
     ) -> str | None:
         """
         Generate conversation summary using LLM.
 
-        Called when conversation ends or periodically for long sessions.
+        Uses incremental compression strategy:
+        - If previous_summary exists: summarize(previous_summary + recent 2-4 messages)
+        - Otherwise: summarize(recent messages)
+
+        This avoids re-summarizing the entire conversation history each time.
         """
-        if len(messages) < 3:
-            return None  # Not enough context for summary
+        if len(messages) < 2:
+            return None
 
         try:
-            # Build summary prompt
-            summary_prompt = (
-                "Summarize the following conversation concisely in 2-3 sentences. "
-                "Focus on the main topics discussed and any key conclusions.\n\n"
-            )
-            for msg in messages[-10:]:  # Last 10 messages
-                summary_prompt += f"{msg['role']}: {msg['content'][:200]}\n"
+            summary_prompt = ""
+
+            if previous_summary:
+                # Incremental compression: previous summary + recent messages
+                summary_prompt = (
+                    "Summarize the conversation updates concisely in 2-3 sentences. "
+                    "The previous summary captures earlier context.\n\n"
+                    f"Previous Summary:\n{previous_summary}\n\n"
+                    f"Recent Messages ({len(messages)}):\n"
+                )
+            else:
+                # First summary: use recent messages
+                summary_prompt = (
+                    "Summarize the following conversation concisely in 2-3 sentences. "
+                    "Focus on the main topics discussed and any key conclusions.\n\n"
+                )
+
+            # Use recent 4 messages for compression window
+            for msg in messages[-4:]:
+                summary_prompt += f"{msg['role']}: {msg['content'][:300]}\n"
 
             summary_response = await llm.achat(
                 messages=[{"role": "user", "content": summary_prompt}],
