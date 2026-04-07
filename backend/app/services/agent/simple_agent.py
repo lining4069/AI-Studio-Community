@@ -69,11 +69,20 @@ class SimpleAgent:
         data_with_run = {**data, "run_id": self.run_id} if self.run_id else data
         return AgentEvent(event=event_type, data=data_with_run)
 
-    async def _execute_tool_call(self, tool_name: str, arguments: dict) -> dict:
+    async def _execute_tool_call(self, tool_name: str, arguments: dict | str) -> dict:
         """Execute a tool and return result."""
         tool = self.tools.get(tool_name)
         if not tool:
             return {"error": f"Tool '{tool_name}' not found"}
+
+        # Parse JSON string arguments if needed (LLM returns string)
+        if isinstance(arguments, str):
+            import json
+
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError as e:
+                return {"error": f"Invalid JSON arguments: {e}"}
 
         try:
             result = await tool.run(arguments)
