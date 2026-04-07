@@ -78,6 +78,8 @@ class AgentService:
         return [
             {
                 "id": m.id,
+                "session_id": m.session_id,
+                "run_id": m.run_id,
                 "role": m.role,
                 "content": m.content,
                 "created_at": m.created_at.isoformat(),
@@ -93,6 +95,7 @@ class AgentService:
             {
                 "id": s.id,
                 "session_id": s.session_id,
+                "run_id": s.run_id,
                 "step_index": s.step_index,
                 "type": s.type,
                 "name": s.name,
@@ -265,6 +268,9 @@ class AgentService:
 
             # Stream events - now yields (Step, AgentEvent) tuples
             async for step, event in agent.stream_run(state):
+                # Inject run_id into ALL events for frontend observability
+                event.data["run_id"] = run.id
+
                 if event.event == "step_start" and step is not None:
                     # step_start: INSERT step record with status=running
                     db_step = await self.repo.create_step(
@@ -280,6 +286,12 @@ class AgentService:
                     # Assign DB-assigned id back to step object
                     step.id = db_step.id
 
+                    # Inject step_id into step_start event data (step.id now available)
+                    # Remove misleading "id: null" from event data (keep only step_id)
+                    event.data.pop("id", None)
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
                 elif event.event == "step_end" and step is not None:
                     # step_end: UPDATE step record with final status/output
                     event_data = event.data
@@ -290,6 +302,30 @@ class AgentService:
                         latency_ms=event_data.get("latency_ms"),
                         error=event_data.get("error"),
                     )
+                    # Inject step_id into step_end event data
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = event_data.get("step_index")
+
+                elif event.event == "tool_call" and step is not None:
+                    # tool_call event: include step context for frontend
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == "tool_result" and step is not None:
+                    # tool_result event: include step context
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == "content" and step is not None:
+                    # content event (from LLM): include step context
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
+                elif event.event == "error":
+                    # error event: include step context if available
+                    if step is not None:
+                        event.data["step_id"] = step.id
+                        event.data["step_index"] = step.step_index
 
                 # Forward event to SSE client (regardless of step tuple)
                 yield event.to_sse().encode("utf-8")
