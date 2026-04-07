@@ -424,6 +424,18 @@ class AgentService:
                     event.data["step_index"] = event_data.get("step_index")
 
                 elif event.event == AgentEventType.TOOL_CALL and step is not None:
+                    # LLM completed and triggered a tool call - mark LLM step as success
+                    # This fixes the missing step_end for LLM steps that use tools
+                    step.status = "success"
+                    step.output = {
+                        "tool_call": event.data.get("tool"),
+                        "arguments": event.data.get("arguments"),
+                    }
+                    await self.repo.update_step(
+                        step_id=step.id,
+                        status="success",
+                        output=step.output,
+                    )
                     event.data["step_id"] = step.id
                     event.data["step_index"] = step.step_index
 
@@ -667,10 +679,24 @@ class AgentService:
                     event.data["step_id"] = step.id
                     event.data["step_index"] = event_data.get("step_index")
 
+                elif event.event == AgentEventType.TOOL_CALL and step is not None:
+                    # LLM completed and triggered a tool call - mark LLM step as success
+                    step.status = "success"
+                    step.output = {
+                        "tool_call": event.data.get("tool"),
+                        "arguments": event.data.get("arguments"),
+                    }
+                    await self.repo.update_step(
+                        step_id=step.id,
+                        status="success",
+                        output=step.output,
+                    )
+                    event.data["step_id"] = step.id
+                    event.data["step_index"] = step.step_index
+
                 elif (
                     event.event
                     in (
-                        AgentEventType.TOOL_CALL,
                         AgentEventType.TOOL_RESULT,
                         AgentEventType.CONTENT,
                     )
