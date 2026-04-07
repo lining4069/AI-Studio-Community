@@ -107,6 +107,7 @@ class AgentRun(Base, TimestampMixin):
 
     # Resume support
     last_step_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Note: last_step_index 由 service 层在每个 step 完成后更新
     resumable: Mapped[bool] = mapped_column(default=True)
 
     # Traceability
@@ -167,6 +168,7 @@ ALTER TABLE agent_steps ADD COLUMN run_id VARCHAR(64);
 ALTER TABLE agent_steps ADD COLUMN idempotency_key VARCHAR(64);
 CREATE INDEX ix_agent_steps_run_id ON agent_steps(run_id);
 CREATE UNIQUE INDEX ix_agent_steps_run_id_step_index ON agent_steps(run_id, step_index);
+CREATE UNIQUE INDEX ix_agent_steps_idempotency_key ON agent_steps(idempotency_key);
 ```
 
 ---
@@ -282,6 +284,14 @@ async def resume_run(run_id, user_id, request):
         yield event
 ```
 
+#### POST /v1/agent/runs/{run_id}/stop
+
+主动停止运行中的 run
+
+**Effect:** `run.status = interrupted`, `run.resumable = true`
+
+**Note:** 设置为 `interrupted` 而非 `error`，表示主动中断，可 resume。
+
 ---
 
 ## SSE 事件结构
@@ -291,12 +301,12 @@ async def resume_run(run_id, user_id, request):
 | 事件 | 字段 | 说明 |
 |------|------|------|
 | `step_start` | run_id, step_id, step_index, type, name | Step 开始 |
-| `step_end` | run_id, step_id, step_index, status, output | Step 结束 |
+| `step_end` | run_id, step_id, step_index, status, output | Step 结束（success/error） |
 | `content` | run_id, step_id, content | 流式内容 |
 | `tool_call` | run_id, step_id, tool, arguments | 工具调用 |
 | `tool_result` | run_id, step_id, result | 工具结果 |
-| `error` | run_id, step_id, error | 错误 |
-| `run_end` | run_id, summary | 运行结束 |
+| `error` | run_id, step_id, step_index, error_message | 实时错误（不同于 step_end） |
+| `run_end` | run_id, summary, status | 运行结束 |
 
 ### 最小事件结构
 
@@ -348,6 +358,9 @@ def generate_idempotency_key(run_id: str, step_index: int, tool_name: str) -> st
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 ```
 
+**Uniqueness:** 同一 `run_id` 内 `run_id:step_index:tool_name` 唯一。
+跨 run 可能重复（不同 run 可以用相同工具）。
+
 ---
 
 ## Replay 机制
@@ -382,6 +395,11 @@ async def replay(run_id: str) -> AgentState:
 async def resume(run_id: str) -> tuple[AgentState, int]:
     """
     返回: (重建的 state, 恢复点的 step_index)
+
+    状态规则:
+    - success: 跳过（不重复执行）
+    - error: 重试（使用相同 idempotency_key）
+    - pending/running: 继续执行
     """
     run = await repo.get_run(run_id)
     steps = await repo.get_steps(run_id)
@@ -394,6 +412,10 @@ async def resume(run_id: str) -> tuple[AgentState, int]:
     # 全部完成，从头开始
     return build_state(run, steps), 0
 ```
+
+**INTERRUPTED 状态触发:**
+- `POST /runs/{id}/stop` — 客户端主动取消，设置 `status=interrupted`
+- 服务端超时检测（可选，Phase 2.5）
 
 ---
 
@@ -459,19 +481,23 @@ def to_llm_tool(tool: Tool) -> dict:
 - [ ] agent_runs 存在
 - [ ] steps 有 run_id + step_index
 - [ ] messages 有 run_id
-- [ ] idempotency_key 唯一约束
+- [ ] idempotency_key 唯一约束 (per run_id+step_index)
+- [ ] last_step_index 在 streaming 中更新
 
 ### 执行层
 - [ ] run 在请求开始创建
 - [ ] step_start → create step (status=running)
 - [ ] step_end → update step (status=success + output)
 - [ ] run status 正确流转
+- [ ] error 状态步骤会重试（非跳过）
 
 ### 恢复能力
 - [ ] replay 可还原 state
-- [ ] resume 从中断点继续
-- [ ] success step 不重复执行
+- [ ] resume 从 error/pending step 继续
+- [ ] success step 不重复执行（幂等）
+- [ ] POST /runs/{id}/stop → interrupted
 
 ### SSE
 - [ ] 事件包含 run_id + step_id + step_index
 - [ ] 前端可精确映射 event → step
+- [ ] error 事件独立于 step_end
