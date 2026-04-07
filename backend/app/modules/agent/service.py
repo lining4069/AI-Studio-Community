@@ -74,7 +74,7 @@ class AgentService:
     ) -> list[dict]:
         """Get messages for a session."""
         await self.get_session(session_id, user_id)
-        messages = await self.repo.get_messages(session_id, limit)
+        messages = await self.repo.get_messages(session_id, limit=limit)
         return [
             {
                 "id": m.id,
@@ -210,7 +210,10 @@ class AgentService:
         request: AgentRunRequest,
     ) -> StreamingResponse:
         """
-        Run agent with SSE streaming.
+        Run agent with SSE streaming and incremental step persistence.
+
+        Phase 2: Run is created immediately, steps are persisted on
+        step_start (INSERT) and step_end (UPDATE) for crash recovery.
 
         Returns StreamingResponse with event stream.
         """
@@ -245,40 +248,72 @@ class AgentService:
         agent = SimpleAgent(llm=llm, tools=tools, run_id=run_id)
 
         async def event_generator() -> AsyncGenerator[bytes, None]:
-            # Persist user message first
+            # Create run immediately (Phase 2: request start = run creation)
+            run = await self.repo.create_run(
+                session_id=session_id,
+                input=request.input,
+                trace_id=run_id,
+            )
+
+            # Persist user message with run_id
             await self.repo.create_message(
                 session_id=session_id,
+                run_id=run.id,
                 role="user",
                 content=request.input,
             )
 
-            # Stream events - state object is mutated in place by stream_run
-            async for event in agent.stream_run(state):
+            # Stream events - now yields (Step, AgentEvent) tuples
+            async for step, event in agent.stream_run(state):
+                if event.event == "step_start" and step is not None:
+                    # step_start: INSERT step record with status=running
+                    db_step = await self.repo.create_step(
+                        session_id=session_id,
+                        run_id=run.id,
+                        step_index=step.step_index,
+                        type=step.type,
+                        name=step.name,
+                        step_input=step.input,
+                        status="running",
+                        idempotency_key=f"{run.id}:{step.step_index}:{step.type}",
+                    )
+                    # Assign DB-assigned id back to step object
+                    step.id = db_step.id
+
+                elif event.event == "step_end" and step is not None:
+                    # step_end: UPDATE step record with final status/output
+                    event_data = event.data
+                    await self.repo.update_step(
+                        step_id=step.id,
+                        status=event_data.get("status"),
+                        output=event_data.get("output"),
+                        latency_ms=event_data.get("latency_ms"),
+                        error=event_data.get("error"),
+                    )
+
+                # Forward event to SSE client (regardless of step tuple)
                 yield event.to_sse().encode("utf-8")
 
-            # After streaming completes, state contains all data
-            # Persist assistant response
+                if event.event == "run_end":
+                    # Mark run as finished
+                    await self.repo.finish_run(
+                        run_id=run.id,
+                        status="success" if state.finished else "error",
+                        output=state.output,
+                    )
+
+            # After streaming completes, persist assistant response
             if state.output:
                 await self.repo.create_message(
                     session_id=session_id,
+                    run_id=run.id,
                     role="assistant",
                     content=state.output,
                 )
 
-            # Persist all steps
-            if state.steps:
-                for step in state.steps:
-                    await self.repo.create_step(
-                        session_id=session_id,
-                        step_index=step.step_index or 0,
-                        type=step.type,
-                        name=step.name,
-                        input=step.input,
-                        output=step.output,
-                        status=step.status,
-                        error=step.error,
-                        latency_ms=step.latency_ms,
-                    )
+            # Update session summary if needed
+            if state.summary:
+                await self.repo.update_summary(session_id, state.summary)
 
         return StreamingResponse(
             event_generator(),

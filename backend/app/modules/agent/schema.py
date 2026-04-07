@@ -47,6 +47,9 @@ class AgentMessageResponse(BaseModel):
 
     id: str
     session_id: str
+    run_id: str | None = None
+    role: str
+    content: str
     metadata: dict = Field(default_factory=dict)
     created_at: datetime
 
@@ -63,6 +66,7 @@ class AgentStepResponse(BaseModel):
 
     id: str
     session_id: str
+    run_id: str | None = None
     step_index: int
     type: str
     name: str | None = None
@@ -75,7 +79,7 @@ class AgentStepResponse(BaseModel):
 
 
 # =============================================================================
-# Run Schemas
+# Run Schemas (Phase 2)
 # =============================================================================
 
 
@@ -91,6 +95,47 @@ class AgentRunResponse(BaseModel):
     """Schema for non-streaming agent response"""
 
     session_id: str
+    run_id: str
     output: str
     summary: str | None = None
     steps: list[dict] = Field(default_factory=list)
+
+
+class AgentRunDetailResponse(BaseModel):
+    """Schema for run detail (GET /runs/{id})"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    session_id: str
+    type: str
+    status: str
+    input: str
+    output: str | None = None
+    error: str | None = None
+    last_step_index: int | None = None
+    resumable: bool
+    trace_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentRunStepsResponse(BaseModel):
+    """Schema for run steps (GET /runs/{id}/steps)"""
+
+    run_id: str
+    steps: list[AgentStepResponse]
+
+
+class AgentResumeRequest(BaseModel):
+    """Schema for resuming a run"""
+
+    input: str | None = Field(None, description="New input if continuing with different query")
+
+
+class AgentStopResponse(BaseModel):
+    """Schema for stopping a run"""
+
+    id: str
+    status: str
+    message: str = "Run stopped"

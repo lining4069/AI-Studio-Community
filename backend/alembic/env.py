@@ -25,7 +25,7 @@ from app.modules.llm_model.models import LlmModel  # noqa: F401
 from app.modules.embedding_model.models import EmbeddingModel  # noqa: F401
 from app.modules.rerank_model.models import RerankModel  # noqa: F401
 from app.modules.knowledge_base.models import KbDocument, KbFile  # noqa: F401
-from app.modules.agent.models import AgentSession, AgentMessage, AgentStep  # noqa: F401
+from app.modules.agent.models import AgentSession, AgentMessage, AgentStep, AgentRun  # noqa: F401
 
 # Alembic Config object
 config = context.config

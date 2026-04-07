@@ -34,6 +34,15 @@ class StepStatus(StrEnum):
     ERROR = "error"
 
 
+class AgentRunStatus(StrEnum):
+    """Run execution status"""
+
+    RUNNING = "running"
+    SUCCESS = "success"
+    ERROR = "error"
+    INTERRUPTED = "interrupted"
+
+
 # ============================================================================
 # Agent Session
 # ============================================================================
@@ -66,6 +75,56 @@ class AgentSession(Base, TimestampMixin):
 
 
 # ============================================================================
+# Agent Run (Phase 2)
+# ============================================================================
+
+
+class AgentRun(Base, TimestampMixin):
+    """
+    Agent run - a single execution instance.
+
+    Represents one complete execution of the Agent (one /runs API request).
+    Run status lifecycle: running -> success / error / interrupted
+    """
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: uuid.uuid4().hex
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("agent_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Execution type
+    type: Mapped[str] = mapped_column(String(20), default="chat")
+
+    # Core state
+    status: Mapped[str] = mapped_column(
+        String(20), default=AgentRunStatus.RUNNING.value
+    )
+
+    # Execution summary
+    input: Mapped[str] = mapped_column(Text, nullable=False)
+    output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Resume support
+    last_step_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Note: last_step_index is updated by service layer after each step success
+    resumable: Mapped[bool] = mapped_column(default=True)
+
+    # Traceability (for logs/observability)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    def __repr__(self):
+        return f"<AgentRun(id={self.id}, status={self.status})>"
+
+
+# ============================================================================
 # Agent Message
 # ============================================================================
 
@@ -75,6 +134,7 @@ class AgentMessage(Base, TimestampMixin):
     Agent conversation message.
 
     Stores user/assistant/system messages in a session.
+    Run-owned: each message belongs to a specific run.
     """
 
     __tablename__ = "agent_messages"
@@ -87,6 +147,11 @@ class AgentMessage(Base, TimestampMixin):
         ForeignKey("agent_sessions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+    )
+
+    # Run ownership (Phase 2)
+    run_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=True, index=True
     )
 
     role: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -122,7 +187,12 @@ class AgentStep(Base, TimestampMixin):
         index=True,
     )
 
-    # Execution order (critical for replay)
+    # Run ownership (Phase 2)
+    run_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+
+    # Execution order (critical for replay, unique per run)
     step_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Step classification
@@ -142,6 +212,10 @@ class AgentStep(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), default=StepStatus.PENDING.value)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Idempotency key for tool execution (Phase 2)
+    # Format: sha256(f"{run_id}:{step_index}:{tool_name}")[:16]
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     def __repr__(self):
         return f"<AgentStep(id={self.id}, type={self.type}, status={self.status})>"

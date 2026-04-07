@@ -19,6 +19,7 @@ class Step:
     Represents a single execution step in the Agent loop.
 
     Attributes:
+        id: Unique step ID (set by DB on persistence)
         type: Step type - "llm", "tool", or "retrieval"
         name: Name of the tool/model (optional for llm)
         input: Step input as dict
@@ -31,6 +32,7 @@ class Step:
     """
 
     type: str
+    id: str | None = None  # DB-assigned on persistence
     name: str | None = None
     input: dict = field(default_factory=dict)
     output: dict | None = None
@@ -43,6 +45,7 @@ class Step:
     def to_dict(self) -> dict:
         """Convert step to dict for serialization."""
         return {
+            "id": self.id,
             "type": self.type,
             "name": self.name,
             "input": self.input,

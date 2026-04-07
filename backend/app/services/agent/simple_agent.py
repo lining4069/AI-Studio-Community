@@ -195,18 +195,25 @@ class SimpleAgent:
 
         return state
 
-    async def stream_run(self, state: AgentState) -> AsyncGenerator[AgentEvent, None]:
+    async def stream_run(
+        self, state: AgentState
+    ) -> AsyncGenerator[tuple[Step, AgentEvent], None]:
         """
-        Streaming version of run() that yields SSE events.
+        Streaming version of run() that yields (Step, AgentEvent) tuples.
 
         Uses achat() internally since astream() does not provide structured
         tool call data. Yields proper step events rather than fake tokens.
+
+        Step lifecycle for Phase 2:
+        - step_start (Step, event) → service layer INSERTs with status=running
+        - step_end (Step, event) → service layer UPDATE with status/output/latency_ms
+        - Non-step events (tool_call, tool_result, content) → forwarded to SSE
 
         Args:
             state: AgentState with user_input and session_id
 
         Yields:
-            AgentEvent for SSE streaming
+            Tuple of (Step, AgentEvent) for SSE streaming
         """
         # Build system prompt
         system_prompt = self.system_prompt or build_system_prompt(
@@ -246,9 +253,13 @@ class SimpleAgent:
                 llm_step.status = "success"
                 state.add_step(llm_step)
 
-                yield self._event("step_start", llm_step.to_dict())
-                yield self._event(
-                    "tool_call", {"tool": tool_name, "arguments": arguments}
+                # Yield step_start with llm_step (service layer will INSERT)
+                yield (llm_step, self._event("step_start", llm_step.to_dict()))
+                yield (
+                    None,
+                    self._event(
+                        "tool_call", {"tool": tool_name, "arguments": arguments}
+                    ),
                 )
 
                 # Execute tool
@@ -262,9 +273,26 @@ class SimpleAgent:
                 tool_step.latency_ms = int((time.time() - tool_start) * 1000)
                 state.add_step(tool_step)
 
-                # Yield tool result event
-                yield self._event(
-                    "tool_result", {"tool": tool_name, "result": tool_result}
+                # Yield step_start for tool, then tool_result, then step_end
+                yield (tool_step, self._event("step_start", tool_step.to_dict()))
+                yield (
+                    tool_step,
+                    self._event(
+                        "tool_result", {"tool": tool_name, "result": tool_result}
+                    ),
+                )
+                yield (
+                    tool_step,
+                    self._event(
+                        "step_end",
+                        {
+                            "step_index": tool_step.step_index,
+                            "status": tool_step.status,
+                            "output": tool_step.output,
+                            "latency_ms": tool_step.latency_ms,
+                            "error": tool_step.error,
+                        },
+                    ),
                 )
 
                 # Feed tool result back to LLM for final response
@@ -295,8 +323,28 @@ class SimpleAgent:
                 final_llm_step.status = "success"
                 state.add_step(final_llm_step)
 
-                yield self._event(
-                    "content", {"content": final_response.get("content", "")}
+                # Yield step_start, content, then step_end for final LLM
+                yield (
+                    final_llm_step,
+                    self._event("step_start", final_llm_step.to_dict()),
+                )
+                yield (
+                    final_llm_step,
+                    self._event(
+                        "content", {"content": final_response.get("content", "")}
+                    ),
+                )
+                yield (
+                    final_llm_step,
+                    self._event(
+                        "step_end",
+                        {
+                            "step_index": final_llm_step.step_index,
+                            "status": final_llm_step.status,
+                            "output": final_llm_step.output,
+                            "latency_ms": final_llm_step.latency_ms,
+                        },
+                    ),
                 )
 
                 state.output = final_response.get("content", "")
@@ -307,16 +355,45 @@ class SimpleAgent:
                 llm_step.output = {"content": response.get("content", "")}
                 llm_step.status = "success"
                 state.add_step(llm_step)
-                yield self._event("step_start", llm_step.to_dict())
-                yield self._event("content", {"content": response.get("content", "")})
+                # Yield step_start, content, then step_end
+                yield (llm_step, self._event("step_start", llm_step.to_dict()))
+                yield (
+                    llm_step,
+                    self._event("content", {"content": response.get("content", "")}),
+                )
+                yield (
+                    llm_step,
+                    self._event(
+                        "step_end",
+                        {
+                            "step_index": llm_step.step_index,
+                            "status": llm_step.status,
+                            "output": llm_step.output,
+                            "latency_ms": llm_step.latency_ms,
+                        },
+                    ),
+                )
 
         except Exception as e:
             logger.error(f"LLM call error: {e}")
             llm_step.status = "error"
             llm_step.error = str(e)
             state.add_step(llm_step)
-            yield self._event("error", {"error": str(e)})
-            yield self._event("run_end", {"summary": state.summary})
+            yield (llm_step, self._event("error", {"error": str(e)}))
+            yield (
+                llm_step,
+                self._event(
+                    "step_end",
+                    {
+                        "step_index": llm_step.step_index,
+                        "status": llm_step.status,
+                        "output": None,
+                        "latency_ms": llm_step.latency_ms,
+                        "error": llm_step.error,
+                    },
+                ),
+            )
+            yield (None, self._event("run_end", {"summary": state.summary}))
             return
 
-        yield self._event("run_end", {"summary": state.summary})
+        yield (None, self._event("run_end", {"summary": state.summary}))
