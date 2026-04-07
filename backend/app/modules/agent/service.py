@@ -626,7 +626,7 @@ class AgentService:
                 event.data["run_id"] = new_run.id
                 event.data["original_run_id"] = run_id  # For tracking lineage
 
-                if event.event == "step_start" and step is not None:
+                if event.event == AgentEventType.STEP_START and step is not None:
                     # Check idempotency: skip if this step already succeeded
                     if step.name:
                         idempotency_key = f"{run_id}:{step.step_index}:{step.name}"
@@ -655,7 +655,7 @@ class AgentService:
                     event.data["step_id"] = step.id
                     event.data["step_index"] = step.step_index
 
-                elif event.event == "step_end" and step is not None:
+                elif event.event == AgentEventType.STEP_END and step is not None:
                     event_data = event.data
                     await self.repo.update_step(
                         step_id=step.id,
@@ -667,17 +667,25 @@ class AgentService:
                     event.data["step_id"] = step.id
                     event.data["step_index"] = event_data.get("step_index")
 
-                elif event.event in ("tool_call", "tool_result", "content") and step is not None:
+                elif (
+                    event.event
+                    in (
+                        AgentEventType.TOOL_CALL,
+                        AgentEventType.TOOL_RESULT,
+                        AgentEventType.CONTENT,
+                    )
+                    and step is not None
+                ):
                     event.data["step_id"] = step.id
                     event.data["step_index"] = step.step_index
 
-                elif event.event == "error" and step is not None:
+                elif event.event == AgentEventType.ERROR and step is not None:
                     event.data["step_id"] = step.id
                     event.data["step_index"] = step.step_index
 
                 yield event.to_sse().encode("utf-8")
 
-                if event.event == "run_end":
+                if event.event == AgentEventType.RUN_END:
                     # Persist assistant message
                     if state.output:
                         await self.repo.create_message(
