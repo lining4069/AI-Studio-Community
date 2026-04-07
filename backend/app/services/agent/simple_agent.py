@@ -197,9 +197,9 @@ class SimpleAgent:
 
     async def stream_run(
         self, state: AgentState
-    ) -> AsyncGenerator[tuple[Step, AgentEvent], None]:
+    ) -> AsyncGenerator[tuple[Step | None, AgentEvent], None]:
         """
-        Streaming version of run() that yields (Step, AgentEvent) tuples.
+        Streaming version of run() that yields (Step | None, AgentEvent) tuples.
 
         Uses achat() internally since astream() does not provide structured
         tool call data. Yields proper step events rather than fake tokens.
@@ -208,6 +208,7 @@ class SimpleAgent:
         - step_start (Step, event) → service layer INSERTs with status=running
         - step_end (Step, event) → service layer UPDATE with status/output/latency_ms
         - Non-step events (tool_call, tool_result, content) → forwarded to SSE
+        - run_end (None, event) → terminal event, no associated Step
 
         Args:
             state: AgentState with user_input and session_id
@@ -254,11 +255,15 @@ class SimpleAgent:
                 state.add_step(llm_step)
 
                 # Yield step_start with llm_step (service layer will INSERT)
-                yield (llm_step, self._event(AgentEventType.STEP_START, llm_step.to_dict()))
+                yield (
+                    llm_step,
+                    self._event(AgentEventType.STEP_START, llm_step.to_dict()),
+                )
                 yield (
                     None,
                     self._event(
-                        AgentEventType.TOOL_CALL, {"tool": tool_name, "arguments": arguments}
+                        AgentEventType.TOOL_CALL,
+                        {"tool": tool_name, "arguments": arguments},
                     ),
                 )
 
@@ -274,11 +279,15 @@ class SimpleAgent:
                 state.add_step(tool_step)
 
                 # Yield step_start for tool, then tool_result, then step_end
-                yield (tool_step, self._event(AgentEventType.STEP_START, tool_step.to_dict()))
+                yield (
+                    tool_step,
+                    self._event(AgentEventType.STEP_START, tool_step.to_dict()),
+                )
                 yield (
                     tool_step,
                     self._event(
-                        AgentEventType.TOOL_RESULT, {"tool": tool_name, "result": tool_result}
+                        AgentEventType.TOOL_RESULT,
+                        {"tool": tool_name, "result": tool_result},
                     ),
                 )
                 yield (
@@ -331,7 +340,8 @@ class SimpleAgent:
                 yield (
                     final_llm_step,
                     self._event(
-                        AgentEventType.CONTENT, {"content": final_response.get("content", "")}
+                        AgentEventType.CONTENT,
+                        {"content": final_response.get("content", "")},
                     ),
                 )
                 yield (
@@ -352,10 +362,16 @@ class SimpleAgent:
                 state.finished = True
 
                 # CRITICAL: Yield run_end with output included
-                yield (None, self._event(AgentEventType.RUN_END, {
-                    "output": state.output,
-                    "summary": state.summary,
-                }))
+                yield (
+                    None,
+                    self._event(
+                        AgentEventType.RUN_END,
+                        {
+                            "output": state.output,
+                            "summary": state.summary,
+                        },
+                    ),
+                )
 
             else:
                 # Direct response (no tool call)
@@ -368,10 +384,15 @@ class SimpleAgent:
                 state.finished = True
 
                 # Yield step_start, content, then step_end
-                yield (llm_step, self._event(AgentEventType.STEP_START, llm_step.to_dict()))
                 yield (
                     llm_step,
-                    self._event(AgentEventType.CONTENT, {"content": response.get("content", "")}),
+                    self._event(AgentEventType.STEP_START, llm_step.to_dict()),
+                )
+                yield (
+                    llm_step,
+                    self._event(
+                        AgentEventType.CONTENT, {"content": response.get("content", "")}
+                    ),
                 )
                 yield (
                     llm_step,
@@ -387,10 +408,16 @@ class SimpleAgent:
                 )
 
                 # CRITICAL: Yield run_end with output included
-                yield (None, self._event(AgentEventType.RUN_END, {
-                    "output": state.output,
-                    "summary": state.summary,
-                }))
+                yield (
+                    None,
+                    self._event(
+                        AgentEventType.RUN_END,
+                        {
+                            "output": state.output,
+                            "summary": state.summary,
+                        },
+                    ),
+                )
 
         except Exception as e:
             logger.error(f"LLM call error: {e}")
@@ -412,8 +439,14 @@ class SimpleAgent:
                 ),
             )
             # CRITICAL: Yield run_end with output included (even on error, output might have partial content)
-            yield (None, self._event(AgentEventType.RUN_END, {
-                "output": state.output,
-                "summary": state.summary,
-            }))
+            yield (
+                None,
+                self._event(
+                    AgentEventType.RUN_END,
+                    {
+                        "output": state.output,
+                        "summary": state.summary,
+                    },
+                ),
+            )
             return
