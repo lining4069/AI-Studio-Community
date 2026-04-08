@@ -23,9 +23,14 @@ class MCPConfigItem:
 
     mcp_server_id: str
     name: str
-    url: str
-    headers: dict | None
     transport: str
+    url: str | None = None
+    headers: dict | None = None
+    command: str | None = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    cwd: str | None = None
+    enabled: bool = True
 
 
 @dataclass

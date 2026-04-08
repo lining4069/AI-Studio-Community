@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # =============================================================================
 # Session Schemas
@@ -268,7 +268,7 @@ class AgentConfigDetailResponse(AgentConfigResponse):
 
 
 # =============================================================================
-# MCP Server Schemas (Phase 4)
+# MCP Server Schemas (Phase 4, enhanced Phase 5)
 # =============================================================================
 
 
@@ -276,25 +276,51 @@ class AgentMCPServerBase(BaseModel):
     """Base schema for MCP server"""
 
     name: str = Field(..., max_length=100)
-    url: str = Field(..., max_length=500)
-    headers: dict | None = None
     transport: str = Field(default="streamable_http")
+    # HTTP-based transport
+    url: str | None = Field(None, max_length=500)
+    headers: dict | None = None
+    # stdio transport
+    command: str | None = Field(None, max_length=100)
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    cwd: str | None = Field(None, max_length=500)
     enabled: bool = Field(default=True)
 
 
 class AgentMCPServerCreate(AgentMCPServerBase):
     """Schema for creating MCP server"""
 
-    pass
+    model_config = ConfigDict(
+        json_schema_extra={
+            "validator": "validate_transport_fields"
+        }
+    )
+
+    @model_validator(mode='after')
+    def validate_transport_fields(self):
+        """Validate fields based on transport type."""
+        if self.transport in ("sse", "streamable_http") and not self.url:
+            raise ValueError(f"transport={self.transport} requires 'url'")
+        if self.transport == "stdio":
+            if not self.command:
+                raise ValueError("transport=stdio requires 'command'")
+            if not self.args:
+                raise ValueError("transport=stdio requires 'args'")
+        return self
 
 
 class AgentMCPServerUpdate(BaseModel):
     """Schema for updating MCP server"""
 
     name: str | None = None
+    transport: str | None = None
     url: str | None = None
     headers: dict | None = None
-    transport: str | None = None
+    command: str | None = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    cwd: str | None = None
     enabled: bool | None = None
 
 

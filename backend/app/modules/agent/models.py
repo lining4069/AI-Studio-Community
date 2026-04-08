@@ -261,6 +261,7 @@ class AgentMCPServer(Base, TimestampMixin):
     via the Model Context Protocol.
 
     Phase 4: Added user_id for ownership and isolation.
+    Phase 5: Added stdio support fields (command, args, env, cwd).
     """
 
     __tablename__ = "agent_mcp_servers"
@@ -275,9 +276,18 @@ class AgentMCPServer(Base, TimestampMixin):
         Integer, ForeignKey("users.id"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    url: Mapped[str] = mapped_column(String(500), nullable=False)
-    headers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     transport: Mapped[str] = mapped_column(String(20), default="streamable_http")
+
+    # HTTP-based transport
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    headers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # stdio transport
+    command: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    args: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    env: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
+    cwd: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     def __repr__(self):

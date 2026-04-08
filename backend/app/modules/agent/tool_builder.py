@@ -15,6 +15,14 @@ from app.modules.agent.domain import (
     ToolConfigItem,
 )
 from app.modules.agent.tools.base import Tool
+from app.modules.agent.tools.builtin_mcp_registry import registry as builtin_registry
+from app.modules.agent.mcp.tool import MCPToolConfig, MCPTool
+from app.modules.agent.mcp.session import create_session
+from app.modules.agent.mcp.exceptions import (
+    MCPConnectionError,
+    MCPProtocolError,
+    MCPValidationError,
+)
 
 
 class ToolBuilder:
@@ -23,7 +31,7 @@ class ToolBuilder:
 
     Handles:
     - Built-in tools (calculator, datetime, websearch)
-    - MCP tools (via langchain-mcp-adapters)
+    - MCP tools (via native MCP SDK)
     - RAG tools (knowledge base retrieval)
 
     Usage:
@@ -72,12 +80,19 @@ class ToolBuilder:
 
         # 2. MCP tools
         for mcp_cfg in config.mcp_servers:
+            if not mcp_cfg.enabled:
+                continue
             try:
                 mcp_tools = await self._build_mcp(mcp_cfg)
                 tools.extend(mcp_tools)
+            except MCPConnectionError as e:
+                warnings.append(f"mcp:{mcp_cfg.name} connection failed: {e}")
+            except MCPProtocolError as e:
+                warnings.append(f"mcp:{mcp_cfg.name} protocol error: {e}")
+            except MCPValidationError as e:
+                warnings.append(f"mcp:{mcp_cfg.name} validation error: {e}")
             except Exception as e:
-                # Single MCP failure doesn't affect other tools
-                warnings.append(f"mcp:{mcp_cfg.name} load failed: {e}")
+                warnings.append(f"mcp:{mcp_cfg.name} unexpected error: {e}")
 
         # 3. RAG tools
         if config.kbs and self.rag_service:
@@ -90,24 +105,16 @@ class ToolBuilder:
         return tools, warnings
 
     def _build_builtin(self, tool_cfg: ToolConfigItem) -> Tool | None:
-        """
-        Build a single built-in tool by name.
-
-        Args:
-            tool_cfg: Tool configuration including name and config dict
-
-        Returns:
-            Tool instance or None if tool name unknown
-        """
+        """Build a single built-in tool by name."""
         match tool_cfg.tool_name:
-            case "calculator":
-                return _CalculatorToolWrapper()
-            case "datetime":
-                return _DateTimeToolWrapper()
+            case "calculator" | "datetime" | "rag_retrieval":
+                return builtin_registry.create_tool(
+                    tool_cfg.tool_name, rag_service=self.rag_service
+                )
             case "websearch":
                 api_key = tool_cfg.tool_config.get("api_key")
                 if not api_key:
-                    raise ValueError("websearch requires api_key in tool_config")
+                    raise ValueError("websearch requires api_key")
                 return _WebSearchToolWrapper(
                     api_key=api_key,
                     search_depth=tool_cfg.tool_config.get("search_depth", "basic"),
@@ -125,37 +132,42 @@ class ToolBuilder:
         Returns:
             List of Tool instances from the MCP server
         """
-        from app.services.agent.adapters.langchain_mcp import to_mcp_tools
+        async with create_session(
+            transport=mcp_cfg.transport,
+            url=mcp_cfg.url,
+            command=mcp_cfg.command,
+            args=mcp_cfg.args,
+            env=mcp_cfg.env,
+            cwd=mcp_cfg.cwd,
+            headers=mcp_cfg.headers,
+        ) as session:
+            result = await session.list_tools()
 
-        try:
-            from langchain_mcp_adapters import load_mcp_tools
-        except ImportError:
-            return []
-
-        connection: dict = {
-            "url": mcp_cfg.url,
-            "headers": (mcp_cfg.headers or {}),
-            "transport": mcp_cfg.transport,
-        }
-
-        lc_tools = await load_mcp_tools(
-            connection=connection,
-            server_name=mcp_cfg.name,
-            tool_name_prefix=True,
+        tool_config = MCPToolConfig(
+            mcp_server_id=mcp_cfg.mcp_server_id,
+            name=mcp_cfg.name,
+            transport=mcp_cfg.transport,
+            url=mcp_cfg.url,
+            command=mcp_cfg.command,
+            args=mcp_cfg.args,
+            env=mcp_cfg.env,
+            cwd=mcp_cfg.cwd,
+            headers=mcp_cfg.headers,
         )
 
-        return to_mcp_tools(lc_tools)
+        tools = []
+        for t in result.tools:
+            input_schema = getattr(t, 'inputSchema', None) or {"type": "object", "properties": {}}
+            tools.append(MCPTool(
+                config=tool_config,
+                tool_name=t.name,
+                description=t.description or "",
+                input_schema=input_schema,
+            ))
+        return tools
 
     def _build_rag(self, kbs: list) -> Tool:
-        """
-        Build RAG retrieval tool.
-
-        Args:
-            kbs: List of KB config items
-
-        Returns:
-            RAG retrieval tool instance
-        """
+        """Build RAG retrieval tool."""
         from app.modules.agent.tools.rag_tool import RAGRetrievalTool
 
         kb_ids = [kb.kb_id for kb in kbs]
@@ -165,55 +177,13 @@ class ToolBuilder:
 
 
 # =============================================================================
-# Built-in tool wrappers (import from modules/agent/tools)
+# Built-in tool wrappers
 # =============================================================================
-
-
-class _CalculatorToolWrapper(Tool):
-    """Wrapper for built-in calculator tool."""
-
-    name = "calculator"
-    description = "数学计算工具"
-    input_schema = {
-        "type": "object",
-        "properties": {
-            "expression": {
-                "type": "string",
-                "description": "数学表达式",
-            }
-        },
-        "required": ["expression"],
-    }
-
-    async def run(self, input: dict) -> dict:
-        from app.modules.agent.tools.calculator import CalculatorTool
-
-        tool = CalculatorTool()
-        return await tool.run(input)
-
-
-class _DateTimeToolWrapper(Tool):
-    """Wrapper for built-in datetime tool."""
-
-    name = "datetime"
-    description = "当前日期时间"
-    input_schema = {
-        "type": "object",
-        "properties": {},
-    }
-
-    async def run(self, input: dict) -> dict:
-        from app.modules.agent.tools.datetime import DateTimeTool
-
-        tool = DateTimeTool()
-        return await tool.run(input)
 
 
 class _WebSearchToolWrapper(Tool):
     """
     Wrapper for web search tool (Tavily).
-
-    Uses httpx with 30s timeout for production safety.
     """
 
     name = "websearch"

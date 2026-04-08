@@ -132,11 +132,16 @@ class AgentConfigLoader:
                 MCPConfigItem(
                     mcp_server_id=link.mcp_server_id,
                     name=link.mcp_server.name if link.mcp_server else "",
-                    url=link.mcp_server.url if link.mcp_server else "",
-                    headers=link.mcp_server.headers if link.mcp_server else None,
                     transport=link.mcp_server.transport
                     if link.mcp_server
                     else "streamable_http",
+                    url=link.mcp_server.url if link.mcp_server else None,
+                    headers=link.mcp_server.headers if link.mcp_server else None,
+                    command=link.mcp_server.command if link.mcp_server else None,
+                    args=link.mcp_server.args if link.mcp_server else None,
+                    env=link.mcp_server.env if link.mcp_server else None,
+                    cwd=link.mcp_server.cwd if link.mcp_server else None,
+                    enabled=link.mcp_server.enabled if link.mcp_server else True,
                 )
                 for link in config.mcp_links
             ],

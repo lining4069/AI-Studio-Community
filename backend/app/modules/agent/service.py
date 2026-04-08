@@ -1208,22 +1208,30 @@ class AgentService:
             return {"success": False, "message": "Server not found", "tools_count": 0}
 
         try:
-            from langchain_mcp_adapters import load_mcp_tools
+            from app.modules.agent.mcp.session import create_session
+            from app.modules.agent.mcp.exceptions import MCPError
 
-            connection = {
-                "url": server.url,
-                "headers": (server.headers or {}),
-                "transport": server.transport,
-            }
-            lc_tools = await load_mcp_tools(
-                connection=connection,
-                server_name=server.name,
-                tool_name_prefix=True,
-            )
+            async with create_session(
+                transport=server.transport,
+                url=server.url,
+                command=server.command,
+                args=server.args,
+                env=server.env,
+                cwd=server.cwd,
+                headers=server.headers,
+            ) as session:
+                result = await session.list_tools()
+
             return {
                 "success": True,
                 "message": "Connection successful",
-                "tools_count": len(lc_tools),
+                "tools_count": len(result.tools),
+            }
+        except MCPError as e:
+            return {
+                "success": False,
+                "message": f"Connection failed: {str(e)}",
+                "tools_count": 0,
             }
         except Exception as e:
             return {
