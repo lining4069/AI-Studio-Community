@@ -518,29 +518,41 @@ CREATE INDEX idx_agent_sessions_config_id ON agent_sessions(config_id);
 ## 文件结构（整理后）
 
 ```
-app/modules/agent/
-├── models.py           # 所有 ORM 模型（含 Phase 4 新增）
-├── schemas.py          # Pydantic request/response schema
-├── repository.py       # DB 访问层
-├── service.py          # 业务逻辑（AgentService、AgentConfigService）
-├── router.py           # FastAPI endpoints
-├── domain.py           # DomainConfig, ToolConfigItem 等领域对象（纯 Python dataclass）
-├── agent_factory.py    # create_agent() 函数
-├── config_loader.py    # AgentConfigLoader（DB → DomainConfig）
-├── tool_builder.py     # ToolBuilder（DomainConfig → list[Tool]）
-└── tools/
-    └── websearch.py    # WebSearchTool（Tavily）
+app/modules/agent/                      # Agent 业务模块
+├── __init__.py                         # 导出 AgentService, AgentConfigService, create_agent
+├── models.py                           # ORM 模型（Session, Run, Message, Step, Config...）
+├── schema.py                           # Pydantic request/response schemas
+├── repository.py                       # 数据库访问层
+├── service.py                          # 业务逻辑层（stream_agent, resume_agent）
+├── router.py                           # FastAPI 路由
+├── domain.py                           # 领域对象（DomainConfig, ToolConfigItem...）
+├── agent_factory.py                    # create_agent() 工厂函数
+├── config_loader.py                    # AgentConfigLoader（DB → DomainConfig）
+├── tool_builder.py                     # ToolBuilder（DomainConfig → list[Tool]）
+└── tools/                              # 内置 Tool 实现
+    ├── __init__.py
+    ├── base.py                         # Tool ABC 抽象类
+    ├── spec.py                         # ToolSpec 标准化契约
+    ├── calculator.py                    # CalculatorTool
+    ├── datetime.py                      # DateTimeTool
+    └── rag_tool.py                      # RAGRetrievalTool
 
-app/services/agent/     # 已有文件，不拆散
-├── simple_agent.py
-├── react_agent.py      # ★ Phase 4 正式接入
-├── core.py
-└── tools/
-    ├── base.py
-    ├── registry.py
-    ├── calculator.py
-    └── datetime_tool.py
+app/services/agent/                     # Agent 执行引擎（纯逻辑，无 DB 依赖）
+├── __init__.py
+├── core.py                             # Step, AgentState, AgentEvent 数据结构
+├── simple_agent.py                      # SimpleAgent（1-loop）
+├── react_agent.py                      # ReactAgent（多轮 ReAct 循环）
+├── prompt_builder.py                    # LLM 消息构建
+└── adapters/                           # Tool 接口适配器
+    ├── __init__.py
+    ├── langchain_mcp.py                 # LangChain BaseTool → Tool ABC 适配 + to_mcp_tools
+    └── openai_adapter.py                # ToolSpec → OpenAI function calling 格式
 ```
+
+**分层原则：**
+- `services/agent/` 是纯执行引擎，**不依赖** `modules/agent/`（除了 Tool ABC via adapters）
+- `modules/agent/` 是业务层，依赖 `services/agent/` 和 DB
+- Tool 实现（calculator, datetime, rag_tool）在 `modules/agent/tools/`，因为 RAGRetrievalTool 需要业务层 RAG service
 
 ---
 

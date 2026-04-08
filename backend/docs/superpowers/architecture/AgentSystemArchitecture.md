@@ -161,42 +161,45 @@ User
 ```
 app/
 ├── modules/
-│   └── agent/                          # Agent 业务模块
+│   └── agent/                          # Agent 业务模块（依赖 services/agent）
 │       ├── __init__.py                 # 导出主要类
 │       ├── models.py                   # ORM 模型（Session, Run, Message, Step, Config...）
 │       ├── schema.py                   # Pydantic request/response schemas
 │       ├── repository.py               # 数据库访问层
-│       ├── service.py                   # 业务逻辑层
+│       ├── service.py                   # 业务逻辑层（stream_agent, resume_agent）
 │       ├── router.py                   # FastAPI 路由
 │       ├── domain.py                   # 领域对象（DomainConfig, ToolConfigItem...）
-│       ├── agent_factory.py            # Agent 实例工厂
+│       ├── agent_factory.py            # Agent 实例工厂（SimpleAgent/ReactAgent）
 │       ├── config_loader.py            # DB→DomainConfig 转换器
 │       ├── tool_builder.py             # DomainConfig→list[Tool] 构建器
-│       └── tools/
-│           └── websearch.py            # WebSearchTool 实现
+│       └── tools/                      # 内置 Tool 实现（Tool ABC）
+│           ├── __init__.py
+│           ├── base.py                 # Tool ABC 抽象类
+│           ├── spec.py                 # ToolSpec 标准化描述
+│           ├── calculator.py           # CalculatorTool 实现
+│           ├── datetime.py             # DateTimeTool 实现
+│           └── rag_tool.py             # RAGRetrievalTool 实现
 │
 ├── services/
-│   └── agent/                          # Agent 执行引擎
+│   └── agent/                          # Agent 执行引擎（纯逻辑，无 DB 依赖）
 │       ├── __init__.py
 │       ├── core.py                     # Step, AgentState, AgentEvent 数据结构
 │       ├── simple_agent.py             # SimpleAgent（单轮执行）
-│       ├── react_agent.py              # ReactAgent（多轮推理）
+│       ├── react_agent.py              # ReactAgent（多轮推理 Think→Action→Observe）
 │       ├── prompt_builder.py           # LLM 消息构建
-│       ├── factories.py                # create_agent_tools, create_local_tools
-│       └── tools/
-│           ├── base.py                 # Tool ABC 抽象类
-│           ├── spec.py                  # ToolSpec 标准化描述
-│           ├── registry.py              # Tool 注册表
-│           ├── adapters.py             # LangChain→Tool 适配器
-│           ├── langchain_adapter.py    # MCP LangChain 适配
-│           └── implementations/
-│               ├── calculator_tool.py  # 计算器工具
-│               ├── datetime_tool.py     # 日期时间工具
-│               └── rag_tool.py         # RAG 检索工具
+│       └── adapters/                   # Tool 接口适配器
+│           ├── __init__.py
+│           ├── langchain_mcp.py        # LangChain BaseTool → Tool ABC 适配 + to_mcp_tools
+│           └── openai_adapter.py       # ToolSpec → OpenAI function calling 格式
 │
 └── dependencies/
     └── infras.py                       # DB session 依赖注入
 ```
+
+**分层原则：**
+- `services/agent/` 是纯执行引擎，**不依赖** `modules/agent/`（除了 Tool ABC via adapters）
+- `modules/agent/` 是业务层，依赖 `services/agent/` 和 DB
+- Tool 实现（calculator, datetime, rag_tool）在 `modules/agent/tools/`，因为它们可能需要业务层服务（如 RAGRetrievalTool 需要 RAG service）
 
 ---
 
