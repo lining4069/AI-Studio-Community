@@ -2,6 +2,11 @@
 SimpleAgent - Phase 1 lightweight Agent with 1-loop execution.
 
 LLM → Tool? → Execute → LLM (max 1 iteration)
+
+Phase 3 Ready Protocol:
+- Step types: llm_decision, tool, llm_response
+- Each STEP_START has exactly one STEP_END
+- TOOL_CALL belongs to llm_decision step (step_id required)
 """
 
 import time
@@ -10,7 +15,13 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.agent.core import AgentEvent, AgentEventType, AgentState, Step
+from app.services.agent.core import (
+    AgentEvent,
+    AgentEventType,
+    AgentState,
+    Step,
+    StepType,
+)
 from app.services.agent.prompt_builder import build_messages, build_system_prompt
 from app.services.agent.tools.adapters import to_openai_tools
 from app.services.providers.base import LLMProvider
@@ -25,6 +36,11 @@ class SimpleAgent:
     2. Call LLM (with tools)
     3. If LLM returns tool call → execute → go to step 2 with result
     4. If no tool call → return response
+
+    Phase 3 Ready Protocol:
+    - llm_decision: input={messages, tools}, output={decision: {type, tool, arguments}}
+    - tool: input={arguments}, output={result} or {error}
+    - llm_response: input={messages}, output={content}
     """
 
     def __init__(
@@ -85,7 +101,7 @@ class SimpleAgent:
 
     async def run(self, state: AgentState) -> AgentState:
         """
-        Run the Agent loop.
+        Run the Agent loop (non-streaming, for testing/debugging).
 
         Args:
             state: AgentState with user_input and session_id
@@ -113,7 +129,7 @@ class SimpleAgent:
             # Note: loop_count increment happens at end of loop or after tool call
 
             # Record LLM step
-            llm_step = Step(type="llm", name=self.llm.provider_name)
+            llm_step = Step(type=StepType.LLM_DECISION, name=self.llm.provider_name)
             start_time = time.time()
 
             try:
@@ -126,20 +142,41 @@ class SimpleAgent:
                 # Record latency before potential break
                 llm_step.latency_ms = int((time.time() - start_time) * 1000)
 
-                # Check if LLM returned a tool call (OpenAI function calling format)
+                # Check if LLM returned a tool call
                 if response.get("tool_calls"):
                     # Extract tool call
                     tool_call = response["tool_calls"][0]
                     tool_name = tool_call["function"]["name"]
                     arguments = tool_call["function"]["arguments"]
 
-                    # Record tool call
-                    llm_step.output = {"tool_call": tool_name, "arguments": arguments}
+                    # Parse arguments if string
+                    if isinstance(arguments, str):
+                        import json
+
+                        arguments = json.loads(arguments)
+
+                    # Record LLM decision step
+                    llm_step.input = {
+                        "messages": messages,
+                        "tools": self._build_llm_tools(),
+                    }
+                    llm_step.output = {
+                        "decision": {
+                            "type": "tool_call",
+                            "tool": tool_name,
+                            "arguments": arguments,
+                        }
+                    }
                     llm_step.status = "success"
                     state.add_step(llm_step)
 
                     # Execute tool
-                    tool_step = Step(type="tool", name=tool_name, input=arguments)
+                    tool_step = Step(
+                        type=StepType.TOOL,
+                        name=tool_name,
+                        input={"arguments": arguments},
+                        role="tool",
+                    )
                     tool_start = time.time()
 
                     tool_result = await self._execute_tool_call(tool_name, arguments)
@@ -170,17 +207,16 @@ class SimpleAgent:
                     state.tool_results[tool_name] = tool_result
 
                     # After tool execution, loop back for another LLM call
-                    # Do NOT increment loop_count - tool execution doesn't count
-                    # against max_loop since we need 2 LLM calls when tool is used
                     continue
 
                 else:
-                    # Direct response (no tool call)
-                    current_output = response.get("content", "")
-                    llm_step.output = {"content": current_output}
+                    # Direct response (no tool call) - this is llm_response
+                    llm_step.type = StepType.LLM_RESPONSE
+                    llm_step.input = {"messages": messages}
+                    llm_step.output = {"content": response.get("content", "")}
                     llm_step.status = "success"
                     state.add_step(llm_step)
-                    state.output = current_output
+                    state.output = response.get("content", "")
                     state.finished = True
                     loop_count += 1
                     break
@@ -202,14 +238,17 @@ class SimpleAgent:
         """
         Streaming version of run() that yields (Step | None, AgentEvent) tuples.
 
-        Uses achat() internally since astream() does not provide structured
-        tool call data. Yields proper step events rather than fake tokens.
+        Phase 3 Ready Protocol:
+        - STEP_START → INSERT step (status=running)
+        - TOOL_CALL → belongs to llm_decision step (step_id required)
+        - STEP_END → UPDATE step (status/output/latency)
+        - Each STEP_START has exactly one STEP_END
+        - run_end → terminal event
 
-        Step lifecycle for Phase 2:
-        - step_start (Step, event) → service layer INSERTs with status=running
-        - step_end (Step, event) → service layer UPDATE with status/output/latency_ms
-        - Non-step events (tool_call, tool_result, content) → forwarded to SSE
-        - run_end (None, event) → terminal event, no associated Step
+        Step sequence for tool call:
+        1. llm_decision: STEP_START → TOOL_CALL → STEP_END
+        2. tool: STEP_START → TOOL_RESULT → STEP_END
+        3. llm_response: STEP_START → CONTENT → STEP_END
 
         Args:
             state: AgentState with user_input and session_id
@@ -230,8 +269,8 @@ class SimpleAgent:
             system_prompt=system_prompt,
         )
 
-        # First LLM call
-        llm_step = Step(type="llm", name=self.llm.provider_name)
+        # First LLM call - llm_decision
+        llm_step = Step(type=StepType.LLM_DECISION, name=self.llm.provider_name)
         start_time = time.time()
 
         try:
@@ -250,26 +289,68 @@ class SimpleAgent:
                 tool_name = tool_call["function"]["name"]
                 arguments = tool_call["function"]["arguments"]
 
-                # Record LLM step with tool call
-                llm_step.output = {"tool_call": tool_name, "arguments": arguments}
+                # Parse arguments if string
+                if isinstance(arguments, str):
+                    import json
+
+                    arguments = json.loads(arguments)
+
+                # Record llm_decision step
+                llm_step.input = {
+                    "messages": messages,
+                    "tools": self._build_llm_tools(),
+                }
+                llm_step.output = {
+                    "decision": {
+                        "type": "tool_call",
+                        "tool": tool_name,
+                        "arguments": arguments,
+                    }
+                }
                 llm_step.status = "success"
                 state.add_step(llm_step)
 
-                # Yield step_start with llm_step (service layer will INSERT)
+                # Yield STEP_START for llm_decision
                 yield (
                     llm_step,
                     self._event(AgentEventType.STEP_START, llm_step.to_dict()),
                 )
+
+                # Yield TOOL_CALL with step_id (belongs to llm_decision)
                 yield (
-                    None,
+                    llm_step,
                     self._event(
                         AgentEventType.TOOL_CALL,
-                        {"tool": tool_name, "arguments": arguments},
+                        {
+                            "tool": tool_name,
+                            "arguments": arguments,
+                            "step_id": llm_step.id,
+                            "step_index": llm_step.step_index,
+                        },
                     ),
                 )
 
-                # Execute tool
-                tool_step = Step(type="tool", name=tool_name, input=arguments)
+                # Yield STEP_END for llm_decision (decision complete)
+                yield (
+                    llm_step,
+                    self._event(
+                        AgentEventType.STEP_END,
+                        {
+                            "step_index": llm_step.step_index,
+                            "status": llm_step.status,
+                            "output": llm_step.output,
+                            "latency_ms": llm_step.latency_ms,
+                        },
+                    ),
+                )
+
+                # Execute tool - this is a new step (tool)
+                tool_step = Step(
+                    type=StepType.TOOL,
+                    name=tool_name,
+                    input={"arguments": arguments},
+                    role="tool",
+                )
                 tool_start = time.time()
 
                 tool_result = await self._execute_tool_call(tool_name, arguments)
@@ -279,18 +360,27 @@ class SimpleAgent:
                 tool_step.latency_ms = int((time.time() - tool_start) * 1000)
                 state.add_step(tool_step)
 
-                # Yield step_start for tool, then tool_result, then step_end
+                # Yield STEP_START for tool
                 yield (
                     tool_step,
                     self._event(AgentEventType.STEP_START, tool_step.to_dict()),
                 )
+
+                # Yield TOOL_RESULT
                 yield (
                     tool_step,
                     self._event(
                         AgentEventType.TOOL_RESULT,
-                        {"tool": tool_name, "result": tool_result},
+                        {
+                            "tool": tool_name,
+                            "result": tool_result,
+                            "step_id": tool_step.id,
+                            "step_index": tool_step.step_index,
+                        },
                     ),
                 )
+
+                # Yield STEP_END for tool
                 yield (
                     tool_step,
                     self._event(
@@ -324,36 +414,44 @@ class SimpleAgent:
                 # Store in scratchpad
                 state.tool_results[tool_name] = tool_result
 
-                # Get final LLM response after tool execution
-                final_llm_step = Step(type="llm", name=self.llm.provider_name)
-                final_start = time.time()
-                final_response = await self.llm.achat(messages=messages)
-                final_llm_step.latency_ms = int((time.time() - final_start) * 1000)
-                final_llm_step.output = {"content": final_response.get("content", "")}
-                final_llm_step.status = "success"
-                state.add_step(final_llm_step)
-
-                # Yield step_start, content, then step_end for final LLM
-                yield (
-                    final_llm_step,
-                    self._event(AgentEventType.STEP_START, final_llm_step.to_dict()),
+                # Get final LLM response - this is llm_response step
+                response_step = Step(
+                    type=StepType.LLM_RESPONSE,
+                    name=self.llm.provider_name,
+                    input={"messages": messages},
                 )
+                response_start = time.time()
+                final_response = await self.llm.achat(messages=messages)
+                response_step.latency_ms = int((time.time() - response_start) * 1000)
+                response_step.output = {"content": final_response.get("content", "")}
+                response_step.status = "success"
+                state.add_step(response_step)
+
+                # Yield STEP_START for llm_response
                 yield (
-                    final_llm_step,
+                    response_step,
+                    self._event(AgentEventType.STEP_START, response_step.to_dict()),
+                )
+
+                # Yield CONTENT
+                yield (
+                    response_step,
                     self._event(
                         AgentEventType.CONTENT,
                         {"content": final_response.get("content", "")},
                     ),
                 )
+
+                # Yield STEP_END for llm_response
                 yield (
-                    final_llm_step,
+                    response_step,
                     self._event(
                         AgentEventType.STEP_END,
                         {
-                            "step_index": final_llm_step.step_index,
-                            "status": final_llm_step.status,
-                            "output": final_llm_step.output,
-                            "latency_ms": final_llm_step.latency_ms,
+                            "step_index": response_step.step_index,
+                            "status": response_step.status,
+                            "output": response_step.output,
+                            "latency_ms": response_step.latency_ms,
                         },
                     ),
                 )
@@ -375,7 +473,9 @@ class SimpleAgent:
                 )
 
             else:
-                # Direct response (no tool call)
+                # Direct response (no tool call) - this is llm_response
+                llm_step.type = StepType.LLM_RESPONSE
+                llm_step.input = {"messages": messages}
                 llm_step.output = {"content": response.get("content", "")}
                 llm_step.status = "success"
                 state.add_step(llm_step)
@@ -384,17 +484,22 @@ class SimpleAgent:
                 state.output = response.get("content", "")
                 state.finished = True
 
-                # Yield step_start, content, then step_end
+                # Yield STEP_START for llm_response
                 yield (
                     llm_step,
                     self._event(AgentEventType.STEP_START, llm_step.to_dict()),
                 )
+
+                # Yield CONTENT
                 yield (
                     llm_step,
                     self._event(
-                        AgentEventType.CONTENT, {"content": response.get("content", "")}
+                        AgentEventType.CONTENT,
+                        {"content": response.get("content", "")},
                     ),
                 )
+
+                # Yield STEP_END
                 yield (
                     llm_step,
                     self._event(
@@ -439,7 +544,7 @@ class SimpleAgent:
                     },
                 ),
             )
-            # CRITICAL: Yield run_end with output included (even on error, output might have partial content)
+            # CRITICAL: Yield run_end with output included
             yield (
                 None,
                 self._event(

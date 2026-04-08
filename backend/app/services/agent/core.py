@@ -2,6 +2,12 @@
 Agent core data structures: Step, AgentState, AgentEvent.
 
 These are runtime state objects, NOT ORM models.
+
+Phase 3 Ready Protocol:
+- Step types: llm_decision, tool, llm_response
+- Each STEP_START has exactly one STEP_END
+- TOOL_CALL belongs to llm_decision step
+- input/output structure is strictly defined
 """
 
 import json
@@ -27,6 +33,25 @@ class AgentEventType(StrEnum):
 
 
 # =============================================================================
+# Step Type Enum - Phase 3 Ready
+# =============================================================================
+
+
+class StepType(StrEnum):
+    """
+    Step types for ReAct protocol.
+
+    - llm_decision: LLM decides to call a tool or respond
+    - tool: Tool execution
+    - llm_response: LLM generates final response (no tool call)
+    """
+
+    LLM_DECISION = "llm_decision"
+    TOOL = "tool"
+    LLM_RESPONSE = "llm_response"
+
+
+# =============================================================================
 # Step - Minimal Execution Unit
 # =============================================================================
 
@@ -36,43 +61,52 @@ class Step:
     """
     Represents a single execution step in the Agent loop.
 
+    Phase 3 Ready Protocol:
+    - Each step has exactly one START and one END
+    - llm_decision: input=messages+tools, output=decision
+    - tool: input=arguments, output=result/error
+    - llm_response: input=messages, output=content
+
     Attributes:
         id: Unique step ID (set by DB on persistence)
-        type: Step type - "llm", "tool", or "retrieval"
-        name: Name of the tool/model (optional for llm)
-        input: Step input as dict
-        output: Step output as dict (optional)
+        type: Step type - "llm_decision", "tool", or "llm_response"
+        role: Semantic role - "assistant" (for LLM steps) or "tool" (for tool steps)
+        name: Name of the tool/model (optional)
+        input: Step input (strictly defined per type)
+        output: Step output (strictly defined per type)
         status: Step status - "pending", "running", "success", "error"
-        thought: ReAct thought text (optional, for future Phase 3)
         error: Error message if status is "error"
         latency_ms: Execution latency in milliseconds
         step_index: Order of this step in the session (set by AgentState.add_step)
+        trace: Optional debug info (raw prompts, responses, usage)
     """
 
-    type: str
-    id: str | None = None  # DB-assigned on persistence
+    type: StepType | str
+    role: str = "assistant"  # "assistant" for LLM, "tool" for tool
+    id: str | None = None
     name: str | None = None
     input: dict = field(default_factory=dict)
     output: dict | None = None
     status: str = "pending"
-    thought: str | None = None
     error: str | None = None
     latency_ms: int | None = None
     step_index: int | None = None
+    trace: dict | None = None  # Debug info: raw prompts, responses, usage
 
     def to_dict(self) -> dict:
         """Convert step to dict for serialization."""
         return {
             "id": self.id,
-            "type": self.type,
+            "type": str(self.type) if isinstance(self.type, StepType) else self.type,
+            "role": self.role,
             "name": self.name,
             "input": self.input,
             "output": self.output,
             "status": self.status,
-            "thought": self.thought,
             "error": self.error,
             "latency_ms": self.latency_ms,
             "step_index": self.step_index,
+            "trace": self.trace,
         }
 
 
