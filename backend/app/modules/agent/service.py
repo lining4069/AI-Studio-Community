@@ -294,6 +294,8 @@ class AgentService:
         Phase 2: Run is created immediately, steps are persisted on
         step_start (INSERT) and step_end (UPDATE) for crash recovery.
 
+        Phase 3: Supports MCP tools via mcp_server_ids in request.
+
         Returns StreamingResponse with event stream.
         """
         session = await self.get_session(session_id, user_id)
@@ -308,9 +310,21 @@ class AgentService:
         # Create LLM
         llm = await self._get_llm_for_session(session, user_id)
 
-        # Create tools (with RAG service if KBs configured)
+        # Create tools (with RAG service if KBs configured, MCP servers if provided)
         rag_service = None  # TODO: Create RAG service from knowledge_base
-        tools = await create_agent_tools(kb_ids=kb_ids, rag_service=rag_service)
+
+        # Fetch MCP servers if server IDs provided
+        mcp_servers = None
+        if request.mcp_server_ids:
+            mcp_servers = await self.repo.get_mcp_servers(
+                server_ids=request.mcp_server_ids
+            )
+
+        tools = await create_agent_tools(
+            kb_ids=kb_ids,
+            rag_service=rag_service,
+            mcp_servers=mcp_servers,
+        )
 
         # Build initial state
         state = AgentState(

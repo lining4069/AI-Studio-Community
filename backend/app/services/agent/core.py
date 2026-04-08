@@ -30,6 +30,8 @@ class AgentEventType(StrEnum):
     TOOL_RESULT = "tool_result"
     RUN_END = "run_end"
     ERROR = "error"
+    THOUGHT = "thought"
+    OBSERVATION = "observation"
 
 
 # =============================================================================
@@ -41,13 +43,17 @@ class StepType(StrEnum):
     """
     Step types for ReAct protocol.
 
+    - llm_thought: LLM thinks about the problem
     - llm_decision: LLM decides to call a tool or respond
     - tool: Tool execution
+    - llm_observation: LLM observes tool result
     - llm_response: LLM generates final response (no tool call)
     """
 
+    LLM_THOUGHT = "llm_thought"
     LLM_DECISION = "llm_decision"
     TOOL = "tool"
+    LLM_OBSERVATION = "llm_observation"
     LLM_RESPONSE = "llm_response"
 
 

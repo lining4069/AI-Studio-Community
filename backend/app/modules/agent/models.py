@@ -3,7 +3,7 @@
 import uuid
 from enum import StrEnum
 
-from sqlalchemy import JSON, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.base import Base, TimestampMixin
@@ -226,3 +226,31 @@ class AgentStep(Base, TimestampMixin):
 
     def __repr__(self):
         return f"<AgentStep(id={self.id}, type={self.type}, status={self.status})>"
+
+
+# ============================================================================
+# Agent MCP Server (Phase 3)
+# ============================================================================
+
+
+class AgentMCPServer(Base, TimestampMixin):
+    """
+    MCP server configuration for Agent tools.
+
+    Stores connection config for MCP servers that provide tools
+    via the Model Context Protocol.
+    """
+
+    __tablename__ = "agent_mcp_servers"
+
+    id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: uuid.uuid4().hex
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    url: Mapped[str] = mapped_column(String(500), nullable=False)
+    headers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    transport: Mapped[str] = mapped_column(String(20), default="streamable_http")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    def __repr__(self):
+        return f"<AgentMCPServer(id={self.id}, name={self.name}, transport={self.transport})>"

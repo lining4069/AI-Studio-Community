@@ -5,7 +5,13 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.agent.models import AgentMessage, AgentRun, AgentSession, AgentStep
+from app.modules.agent.models import (
+    AgentMCPServer,
+    AgentMessage,
+    AgentRun,
+    AgentSession,
+    AgentStep,
+)
 from app.utils.datetime_utils import now_utc
 
 
@@ -280,3 +286,30 @@ class AgentRepository:
         """Get step by idempotency_key for deduplication."""
         stmt = select(AgentStep).where(AgentStep.idempotency_key == idempotency_key)
         return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    # =========================================================================
+    # MCP Server (Phase 3)
+    # =========================================================================
+
+    async def get_mcp_servers(
+        self, server_ids: list[str] | None = None, enabled_only: bool = True
+    ) -> list[AgentMCPServer]:
+        """
+        Get MCP servers by IDs or all enabled servers.
+
+        Args:
+            server_ids: Optional list of server IDs to fetch
+            enabled_only: If True, only return enabled servers
+
+        Returns:
+            List of AgentMCPServer instances
+        """
+        if server_ids:
+            stmt = select(AgentMCPServer).where(AgentMCPServer.id.in_(server_ids))
+        else:
+            stmt = select(AgentMCPServer)
+
+        if enabled_only:
+            stmt = stmt.where(AgentMCPServer.enabled.is_(True))
+
+        return list((await self.db.execute(stmt)).scalars().all())

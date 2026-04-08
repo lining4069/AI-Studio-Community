@@ -89,6 +89,9 @@ class AgentRunRequest(BaseModel):
     input: str = Field(..., min_length=1, description="User input")
     stream: bool = Field(default=True, description="Enable SSE streaming")
     debug: bool = Field(default=False, description="Include debug info")
+    mcp_server_ids: list[str] = Field(
+        default_factory=list, description="MCP server IDs to use for this run"
+    )
 
 
 class AgentRunResponse(BaseModel):

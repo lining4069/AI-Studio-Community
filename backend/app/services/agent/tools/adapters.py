@@ -6,8 +6,14 @@ LLM provider-specific function calling formats.
 
 Currently supported:
 - OpenAI (function calling)
+- LangChain (MCP tools via langchain-mcp-adapters)
 """
 
+from typing import Any
+
+from langchain_core.tools import BaseTool
+
+from app.services.agent.tools.langchain_adapter import LangChainToolAdapter
 from app.services.agent.tools.spec import ToolSpec
 
 
@@ -35,3 +41,16 @@ def to_openai_tool(spec: ToolSpec) -> dict:
         OpenAI tool definition.
     """
     return spec.to_openai_format()
+
+
+def to_mcp_tools(lc_tools: list[BaseTool]) -> list[Any]:
+    """
+    Convert LangChain BaseTool list (from langchain-mcp-adapters) to our Tool interface.
+
+    Args:
+        lc_tools: List of LangChain BaseTool instances (e.g., from load_mcp_tools)
+
+    Returns:
+        List of Tool instances (LangChainToolAdapter wrapped)
+    """
+    return [LangChainToolAdapter(lc_tool=t) for t in lc_tools]
