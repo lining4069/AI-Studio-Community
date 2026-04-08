@@ -44,7 +44,6 @@ dependencies = [
     "langchain-community>=0.4.1",
     "langchain-text-splitters>=1.1.1",
     "jq>=1.11.0",
-    "langchain-mcp-adapters>=0.2.2",
     "mcp>=1.27.0",
 ]
 
