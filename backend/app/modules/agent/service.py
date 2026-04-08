@@ -8,6 +8,9 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 
 from app.common.exceptions import NotFoundException
+from app.modules.agent.agent_factory import create_agent
+from app.modules.agent.config_loader import AgentConfigLoader
+from app.modules.agent.domain import DomainConfig
 from app.modules.agent.models import AgentSession
 from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
@@ -15,10 +18,9 @@ from app.modules.agent.schema import (
     AgentSessionCreate,
     AgentSessionResponse,
 )
+from app.modules.agent.tool_builder import ToolBuilder
 from app.modules.llm_model.repository import LlmModelRepository
 from app.services.agent.core import AgentEventType, AgentState
-from app.services.agent.factories import create_agent_tools
-from app.services.agent.simple_agent import SimpleAgent
 from app.services.providers.model_factory import create_llm
 
 
@@ -27,6 +29,9 @@ class AgentService:
     Business logic for Agent system.
 
     Handles session management, agent execution, and SSE streaming.
+
+    Phase 4: Integrates AgentConfig for persistent configuration,
+    ToolBuilder for tool construction, and snapshot for run reproducibility.
     """
 
     def __init__(
@@ -198,6 +203,8 @@ class AgentService:
         """
         Run agent (non-streaming, for debugging/testing).
 
+        Phase 4: Supports AgentConfig via session.config_id.
+
         Returns full result dict with output, summary, steps.
         """
         session = await self.get_session(session_id, user_id)
@@ -206,14 +213,20 @@ class AgentService:
         db_messages = await self.repo.get_messages(session_id)
         history = [{"role": m.role, "content": m.content} for m in db_messages]
 
-        # Get KB IDs from session config (stored in metadata or separate table)
-        kb_ids = getattr(session, "kb_ids", []) or []
-
         # Create LLM
         llm = await self._get_llm_for_session(session, user_id)
 
-        # Create tools
-        tools = await create_agent_tools(kb_ids=kb_ids, rag_service=None)
+        # Phase 4: Load config and build tools
+        domain_config: DomainConfig | None = None
+        if session.config_id:
+            config_loader = AgentConfigLoader(self.repo.db)
+            domain_config = await config_loader.load(session.config_id, user_id)
+
+        rag_service = None
+        tool_builder = ToolBuilder(rag_service=rag_service)
+        tools, warnings = await tool_builder.build(domain_config)
+
+        agent_type = domain_config.agent_type if domain_config else "simple"
 
         # Build initial state
         state = AgentState(
@@ -223,8 +236,14 @@ class AgentService:
             summary=session.summary,
         )
 
-        # Run agent
-        agent = SimpleAgent(llm=llm, tools=tools)
+        # Run agent via factory
+        agent = create_agent(
+            agent_type=agent_type,
+            tools=tools,
+            llm=llm,
+            run_id=None,
+            config=domain_config,
+        )
         result_state = await agent.run(state)
 
         # Persist user message
@@ -296,6 +315,11 @@ class AgentService:
 
         Phase 3: Supports MCP tools via mcp_server_ids in request.
 
+        Phase 4: Supports AgentConfig via session.config_id.
+        - Loads config from AgentConfigLoader
+        - Builds tools via ToolBuilder
+        - Saves snapshot to AgentRun.config_snapshot for reproducibility
+
         Returns StreamingResponse with event stream.
         """
         session = await self.get_session(session_id, user_id)
@@ -304,27 +328,24 @@ class AgentService:
         db_messages = await self.repo.get_messages(session_id)
         history = [{"role": m.role, "content": m.content} for m in db_messages]
 
-        # Get KB IDs from session config
-        kb_ids = getattr(session, "kb_ids", []) or []
-
         # Create LLM
         llm = await self._get_llm_for_session(session, user_id)
 
-        # Create tools (with RAG service if KBs configured, MCP servers if provided)
+        # Phase 4: Load config and build tools
+        domain_config: DomainConfig | None = None
+        if session.config_id:
+            config_loader = AgentConfigLoader(self.repo.db)
+            domain_config = await config_loader.load(session.config_id, user_id)
+
+        # Build tools via ToolBuilder
         rag_service = None  # TODO: Create RAG service from knowledge_base
+        tool_builder = ToolBuilder(rag_service=rag_service)
+        tools, warnings = await tool_builder.build(domain_config)
+        if warnings:
+            logger.warning(f"Tool load warnings for session {session_id}: {warnings}")
 
-        # Fetch MCP servers if server IDs provided
-        mcp_servers = None
-        if request.mcp_server_ids:
-            mcp_servers = await self.repo.get_mcp_servers(
-                server_ids=request.mcp_server_ids
-            )
-
-        tools = await create_agent_tools(
-            kb_ids=kb_ids,
-            rag_service=rag_service,
-            mcp_servers=mcp_servers,
-        )
+        # Determine agent type from config or default to simple
+        agent_type = domain_config.agent_type if domain_config else "simple"
 
         # Build initial state
         state = AgentState(
@@ -337,8 +358,14 @@ class AgentService:
         # Generate run_id for SSE event tracking
         run_id = uuid.uuid4().hex
 
-        # Run streaming agent
-        agent = SimpleAgent(llm=llm, tools=tools, run_id=run_id)
+        # Run streaming agent via factory
+        agent = create_agent(
+            agent_type=agent_type,
+            tools=tools,
+            llm=llm,
+            run_id=run_id,
+            config=domain_config,
+        )
 
         async def event_generator() -> AsyncGenerator[bytes, None]:
             # Create run immediately (Phase 2: request start = run creation)
@@ -347,6 +374,11 @@ class AgentService:
                 input=request.input,
                 trace_id=run_id,
             )
+
+            # Phase 4: Save config snapshot to run BEFORE execution
+            # This ensures run reproducibility even if config changes later
+            if domain_config:
+                await self.repo.update_run_snapshot(run.id, domain_config.to_snapshot())
 
             # Persist user message with run_id
             await self.repo.create_message(
@@ -595,17 +627,26 @@ class AgentService:
             if step.type == "tool" and step.name and step.output:
                 tool_results[step.name] = step.output
 
-        # 5. Get KB IDs from session
-        kb_ids = getattr(session, "kb_ids", []) or []
-
-        # 6. Create LLM
+        # 5. Create LLM
         llm = await self._get_llm_for_session(session, user_id)
 
-        # 7. Create tools
-        rag_service = None
-        tools = await create_agent_tools(kb_ids=kb_ids, rag_service=rag_service)
+        # 6. Phase 4: Load config from snapshot for reproducibility
+        #    Use config_snapshot from original run (frozen at run start)
+        domain_config: DomainConfig | None = None
+        if original_run.config_snapshot:
+            domain_config = DomainConfig.from_snapshot(original_run.config_snapshot)
 
-        # 8. Build initial state from successful steps + summary
+        # 7. Build tools via ToolBuilder (same as stream_agent)
+        rag_service = None
+        tool_builder = ToolBuilder(rag_service=rag_service)
+        tools, warnings = await tool_builder.build(domain_config)
+        if warnings:
+            logger.warning(f"Tool load warnings for resume run {run_id}: {warnings}")
+
+        # 8. Determine agent type from config
+        agent_type = domain_config.agent_type if domain_config else "simple"
+
+        # 9. Build initial state from successful steps + summary
         #    Skip all successful steps (they're already in history/scratchpad)
         last_step_index = successful_steps[-1].step_index if successful_steps else -1
 
@@ -617,11 +658,17 @@ class AgentService:
             tool_results=tool_results,
         )
 
-        # 9. Generate new run_id for SSE tracking
+        # 10. Generate new run_id for SSE tracking
         new_run_id = uuid.uuid4().hex
 
-        # 10. Run streaming agent
-        agent = SimpleAgent(llm=llm, tools=tools, run_id=new_run_id)
+        # 11. Run streaming agent via factory
+        agent = create_agent(
+            agent_type=agent_type,
+            tools=tools,
+            llm=llm,
+            run_id=new_run_id,
+            config=domain_config,
+        )
 
         async def event_generator() -> AsyncGenerator[bytes, None]:
             # Create new run (continuation)
@@ -784,3 +831,491 @@ class AgentService:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    # =========================================================================
+    # AgentConfig Service (Phase 4)
+    # =========================================================================
+
+    async def create_config(
+        self,
+        user_id: int,
+        name: str,
+        description: str | None = None,
+        llm_model_id: str | None = None,
+        agent_type: str = "simple",
+        max_loop: int = 5,
+        system_prompt: str | None = None,
+        enabled: bool = True,
+    ) -> dict:
+        """Create a new agent config."""
+        config = await self.repo.create_config(
+            user_id=user_id,
+            name=name,
+            description=description,
+            llm_model_id=llm_model_id,
+            agent_type=agent_type,
+            max_loop=max_loop,
+            system_prompt=system_prompt,
+            enabled=enabled,
+        )
+        return {
+            "id": config.id,
+            "user_id": config.user_id,
+            "name": config.name,
+            "description": config.description,
+            "llm_model_id": config.llm_model_id,
+            "agent_type": config.agent_type,
+            "max_loop": config.max_loop,
+            "system_prompt": config.system_prompt,
+            "enabled": config.enabled,
+            "created_at": config.created_at.isoformat(),
+            "updated_at": config.updated_at.isoformat(),
+        }
+
+    async def get_config(self, config_id: str, user_id: int) -> dict | None:
+        """Get agent config by ID."""
+        config = await self.repo.get_config(config_id, user_id)
+        if not config:
+            return None
+        return {
+            "id": config.id,
+            "user_id": config.user_id,
+            "name": config.name,
+            "description": config.description,
+            "llm_model_id": config.llm_model_id,
+            "agent_type": config.agent_type,
+            "max_loop": config.max_loop,
+            "system_prompt": config.system_prompt,
+            "enabled": config.enabled,
+            "created_at": config.created_at.isoformat(),
+            "updated_at": config.updated_at.isoformat(),
+        }
+
+    async def list_configs(
+        self, user_id: int, page: int = 1, page_size: int = 20
+    ) -> tuple[list[dict], int]:
+        """List agent configs for user (paginated)."""
+        configs, total = await self.repo.list_configs(
+            user_id, page=page, page_size=page_size
+        )
+        return [
+            {
+                "id": c.id,
+                "user_id": c.user_id,
+                "name": c.name,
+                "description": c.description,
+                "llm_model_id": c.llm_model_id,
+                "agent_type": c.agent_type,
+                "max_loop": c.max_loop,
+                "system_prompt": c.system_prompt,
+                "enabled": c.enabled,
+                "created_at": c.created_at.isoformat(),
+                "updated_at": c.updated_at.isoformat(),
+            }
+            for c in configs
+        ], total
+
+    async def update_config(
+        self,
+        config_id: str,
+        user_id: int,
+        name: str | None = None,
+        description: str | None = None,
+        llm_model_id: str | None = None,
+        agent_type: str | None = None,
+        max_loop: int | None = None,
+        system_prompt: str | None = None,
+        enabled: bool | None = None,
+    ) -> dict | None:
+        """Update agent config."""
+        config = await self.repo.update_config(
+            config_id=config_id,
+            user_id=user_id,
+            name=name,
+            description=description,
+            llm_model_id=llm_model_id,
+            agent_type=agent_type,
+            max_loop=max_loop,
+            system_prompt=system_prompt,
+            enabled=enabled,
+        )
+        if not config:
+            return None
+        return {
+            "id": config.id,
+            "user_id": config.user_id,
+            "name": config.name,
+            "description": config.description,
+            "llm_model_id": config.llm_model_id,
+            "agent_type": config.agent_type,
+            "max_loop": config.max_loop,
+            "system_prompt": config.system_prompt,
+            "enabled": config.enabled,
+            "created_at": config.created_at.isoformat(),
+            "updated_at": config.updated_at.isoformat(),
+        }
+
+    async def delete_config(self, config_id: str, user_id: int) -> bool:
+        """Delete agent config."""
+        return await self.repo.delete_config(config_id, user_id)
+
+    # Config Tools
+    async def add_config_tool(
+        self,
+        config_id: str,
+        tool_name: str,
+        tool_config: dict | None = None,
+        enabled: bool = True,
+    ) -> dict:
+        """Add a tool to a config."""
+        tool = await self.repo.add_config_tool(
+            config_id=config_id,
+            tool_name=tool_name,
+            tool_config=tool_config,
+            enabled=enabled,
+        )
+        return {
+            "id": tool.id,
+            "config_id": tool.config_id,
+            "tool_name": tool.tool_name,
+            "tool_config": tool.tool_config,
+            "enabled": tool.enabled,
+        }
+
+    async def update_config_tool(
+        self,
+        tool_id: int,
+        tool_config: dict | None = None,
+        enabled: bool | None = None,
+    ) -> dict | None:
+        """Update a config tool."""
+        tool = await self.repo.update_config_tool(
+            tool_id=tool_id,
+            tool_config=tool_config,
+            enabled=enabled,
+        )
+        if not tool:
+            return None
+        return {
+            "id": tool.id,
+            "config_id": tool.config_id,
+            "tool_name": tool.tool_name,
+            "tool_config": tool.tool_config,
+            "enabled": tool.enabled,
+        }
+
+    async def delete_config_tool(self, tool_id: int) -> bool:
+        """Delete a config tool."""
+        return await self.repo.delete_config_tool(tool_id)
+
+    async def get_config_tools(self, config_id: str) -> list[dict]:
+        """Get all tools for a config."""
+        tools = await self.repo.get_config_tools(config_id)
+        return [
+            {
+                "id": t.id,
+                "config_id": t.config_id,
+                "tool_name": t.tool_name,
+                "tool_config": t.tool_config,
+                "enabled": t.enabled,
+            }
+            for t in tools
+        ]
+
+    # Config MCP Servers
+    async def add_config_mcp_server(
+        self,
+        config_id: str,
+        mcp_server_id: str,
+    ) -> dict:
+        """Link an MCP server to a config."""
+        link = await self.repo.add_config_mcp_server(
+            config_id=config_id,
+            mcp_server_id=mcp_server_id,
+        )
+        return {
+            "id": link.id,
+            "config_id": link.config_id,
+            "mcp_server_id": link.mcp_server_id,
+        }
+
+    async def delete_config_mcp_server(self, link_id: int) -> bool:
+        """Unlink an MCP server from a config."""
+        return await self.repo.delete_config_mcp_server(link_id)
+
+    async def get_config_mcp_links(self, config_id: str) -> list[dict]:
+        """Get all MCP server links for a config."""
+        links = await self.repo.get_config_mcp_links(config_id)
+        return [
+            {
+                "id": link.id,
+                "config_id": link.config_id,
+                "mcp_server_id": link.mcp_server_id,
+            }
+            for link in links
+        ]
+
+    # Config KB Links
+    async def add_config_kb(
+        self,
+        config_id: str,
+        kb_id: str,
+        kb_config: dict | None = None,
+    ) -> dict:
+        """Link a knowledge base to a config."""
+        link = await self.repo.add_config_kb(
+            config_id=config_id,
+            kb_id=kb_id,
+            kb_config=kb_config,
+        )
+        return {
+            "id": link.id,
+            "config_id": link.config_id,
+            "kb_id": link.kb_id,
+            "kb_config": link.kb_config,
+        }
+
+    async def delete_config_kb(self, link_id: int) -> bool:
+        """Unlink a knowledge base from a config."""
+        return await self.repo.delete_config_kb(link_id)
+
+    async def get_config_kb_links(self, config_id: str) -> list[dict]:
+        """Get all KB links for a config."""
+        links = await self.repo.get_config_kb_links(config_id)
+        return [
+            {
+                "id": link.id,
+                "config_id": link.config_id,
+                "kb_id": link.kb_id,
+                "kb_config": link.kb_config,
+            }
+            for link in links
+        ]
+
+    # =========================================================================
+    # MCP Server Service (Phase 4)
+    # =========================================================================
+
+    async def create_mcp_server(
+        self,
+        user_id: int,
+        name: str,
+        url: str,
+        headers: dict | None = None,
+        transport: str = "streamable_http",
+        enabled: bool = True,
+    ) -> dict:
+        """Create a new MCP server."""
+        server = await self.repo.create_mcp_server(
+            user_id=user_id,
+            name=name,
+            url=url,
+            headers=headers,
+            transport=transport,
+            enabled=enabled,
+        )
+        return {
+            "id": server.id,
+            "user_id": server.user_id,
+            "name": server.name,
+            "url": server.url,
+            "headers": server.headers,
+            "transport": server.transport,
+            "enabled": server.enabled,
+            "created_at": server.created_at.isoformat(),
+            "updated_at": server.updated_at.isoformat(),
+        }
+
+    async def get_mcp_server(self, server_id: str, user_id: int) -> dict | None:
+        """Get MCP server by ID."""
+        server = await self.repo.get_mcp_server(server_id, user_id)
+        if not server:
+            return None
+        return {
+            "id": server.id,
+            "user_id": server.user_id,
+            "name": server.name,
+            "url": server.url,
+            "headers": server.headers,
+            "transport": server.transport,
+            "enabled": server.enabled,
+            "created_at": server.created_at.isoformat(),
+            "updated_at": server.updated_at.isoformat(),
+        }
+
+    async def list_mcp_servers(
+        self, user_id: int, page: int = 1, page_size: int = 20
+    ) -> tuple[list[dict], int]:
+        """List MCP servers for user."""
+        servers = await self.repo.get_mcp_servers(user_id=user_id)
+        return [
+            {
+                "id": s.id,
+                "user_id": s.user_id,
+                "name": s.name,
+                "url": s.url,
+                "headers": s.headers,
+                "transport": s.transport,
+                "enabled": s.enabled,
+                "created_at": s.created_at.isoformat(),
+                "updated_at": s.updated_at.isoformat(),
+            }
+            for s in servers
+        ], len(servers)
+
+    async def update_mcp_server(
+        self,
+        server_id: str,
+        user_id: int,
+        name: str | None = None,
+        url: str | None = None,
+        headers: dict | None = None,
+        transport: str | None = None,
+        enabled: bool | None = None,
+    ) -> dict | None:
+        """Update MCP server."""
+        server = await self.repo.update_mcp_server(
+            server_id=server_id,
+            user_id=user_id,
+            name=name,
+            url=url,
+            headers=headers,
+            transport=transport,
+            enabled=enabled,
+        )
+        if not server:
+            return None
+        return {
+            "id": server.id,
+            "user_id": server.user_id,
+            "name": server.name,
+            "url": server.url,
+            "headers": server.headers,
+            "transport": server.transport,
+            "enabled": server.enabled,
+            "created_at": server.created_at.isoformat(),
+            "updated_at": server.updated_at.isoformat(),
+        }
+
+    async def delete_mcp_server(self, server_id: str, user_id: int) -> bool:
+        """Delete MCP server."""
+        return await self.repo.delete_mcp_server(server_id, user_id)
+
+    async def test_mcp_server(self, server_id: str, user_id: int) -> dict:
+        """Test MCP server connection."""
+        server = await self.repo.get_mcp_server(server_id, user_id)
+        if not server:
+            return {"success": False, "message": "Server not found", "tools_count": 0}
+
+        try:
+            from langchain_mcp_adapters import load_mcp_tools
+
+            connection = {
+                "url": server.url,
+                "headers": (server.headers or {}),
+                "transport": server.transport,
+            }
+            lc_tools = await load_mcp_tools(
+                connection=connection,
+                server_name=server.name,
+                tool_name_prefix=True,
+            )
+            return {
+                "success": True,
+                "message": "Connection successful",
+                "tools_count": len(lc_tools),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Connection failed: {str(e)}",
+                "tools_count": 0,
+            }
+
+    # =========================================================================
+    # Session Config Binding (Phase 4)
+    # =========================================================================
+
+    async def update_session_config(
+        self, session_id: str, user_id: int, config_id: str | None
+    ) -> None:
+        """Update session's config_id binding."""
+        await self.get_session(session_id, user_id)  # Verify ownership
+        await self.repo.update_session_config(session_id, config_id)
+
+    # =========================================================================
+    # Builtin Tools (Phase 4)
+    # =========================================================================
+
+    async def get_builtin_tools(self) -> list[dict]:
+        """Get all available built-in tools."""
+        return [
+            {
+                "name": "calculator",
+                "description": "数学计算工具",
+                "has_config": False,
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "expression": {"type": "string", "description": "数学表达式"}
+                    },
+                    "required": ["expression"],
+                },
+            },
+            {
+                "name": "datetime",
+                "description": "当前日期时间",
+                "has_config": False,
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "websearch",
+                "description": "网络搜索 (Tavily)",
+                "has_config": True,
+                "config_schema": {
+                    "api_key": {"type": "string"},
+                    "search_depth": {"type": "string", "enum": ["basic", "advanced"]},
+                },
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "搜索关键词"}
+                    },
+                    "required": ["query"],
+                },
+            },
+        ]
+
+    # =========================================================================
+    # Resolved Tools Debug (Phase 4)
+    # =========================================================================
+
+    async def get_resolved_tools(
+        self, config_id: str, user_id: int
+    ) -> tuple[list[dict], list[str]]:
+        """
+        Get resolved tool list for a config (for debugging).
+
+        Returns:
+            Tuple of (tools, warnings) showing what would be loaded.
+        """
+        config_loader = AgentConfigLoader(self.repo.db)
+        domain_config = await config_loader.load(config_id, user_id)
+        if not domain_config:
+            return [], ["Config not found"]
+
+        rag_service = None
+        tool_builder = ToolBuilder(rag_service=rag_service)
+        tools, warnings = await tool_builder.build(domain_config)
+
+        return [
+            {
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.input_schema,
+            }
+            for t in tools
+        ], warnings

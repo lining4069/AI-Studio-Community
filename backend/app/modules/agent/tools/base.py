@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from app.services.agent.tools.spec import ToolSpec
+from app.modules.agent.tools.spec import ToolSpec
 
 
 class Tool(ABC):

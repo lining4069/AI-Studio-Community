@@ -1,5 +1,5 @@
 import pytest
-from app.modules.agent.tools.implementations.calculator_tool import CalculatorTool
+from app.modules.agent.tools.calculator import CalculatorTool
 
 
 @pytest.mark.asyncio

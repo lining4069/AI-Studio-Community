@@ -6,6 +6,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agent.models import (
+    AgentConfig,
+    AgentConfigKB,
+    AgentConfigMCP,
+    AgentConfigTool,
     AgentMCPServer,
     AgentMessage,
     AgentRun,
@@ -292,7 +296,10 @@ class AgentRepository:
     # =========================================================================
 
     async def get_mcp_servers(
-        self, server_ids: list[str] | None = None, enabled_only: bool = True
+        self,
+        server_ids: list[str] | None = None,
+        enabled_only: bool = True,
+        user_id: int | None = None,
     ) -> list[AgentMCPServer]:
         """
         Get MCP servers by IDs or all enabled servers.
@@ -300,16 +307,397 @@ class AgentRepository:
         Args:
             server_ids: Optional list of server IDs to fetch
             enabled_only: If True, only return enabled servers
+            user_id: If provided, filter by user ownership
 
         Returns:
             List of AgentMCPServer instances
         """
+        stmt = select(AgentMCPServer)
+
         if server_ids:
-            stmt = select(AgentMCPServer).where(AgentMCPServer.id.in_(server_ids))
-        else:
-            stmt = select(AgentMCPServer)
+            stmt = stmt.where(AgentMCPServer.id.in_(server_ids))
 
         if enabled_only:
             stmt = stmt.where(AgentMCPServer.enabled.is_(True))
 
+        if user_id is not None:
+            stmt = stmt.where(AgentMCPServer.user_id == user_id)
+
         return list((await self.db.execute(stmt)).scalars().all())
+
+    # =========================================================================
+    # AgentConfig CRUD (Phase 4)
+    # =========================================================================
+
+    async def create_config(
+        self,
+        user_id: int,
+        name: str,
+        description: str | None = None,
+        llm_model_id: str | None = None,
+        agent_type: str = "simple",
+        max_loop: int = 5,
+        system_prompt: str | None = None,
+        enabled: bool = True,
+    ) -> AgentConfig:
+        """Create a new agent config."""
+        config = AgentConfig(
+            user_id=user_id,
+            name=name,
+            description=description,
+            llm_model_id=llm_model_id,
+            agent_type=agent_type,
+            max_loop=max_loop,
+            system_prompt=system_prompt,
+            enabled=enabled,
+        )
+        self.db.add(config)
+        await self.db.flush()
+        await self.db.refresh(config)
+        return config
+
+    async def get_config(
+        self, config_id: str, user_id: int | None = None
+    ) -> AgentConfig | None:
+        """Get agent config by ID (optionally verify ownership)."""
+        stmt = select(AgentConfig).where(AgentConfig.id == config_id)
+        if user_id is not None:
+            stmt = stmt.where(AgentConfig.user_id == user_id)
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    async def list_configs(
+        self,
+        user_id: int,
+        enabled_only: bool = True,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[AgentConfig], int]:
+        """List agent configs for user (paginated)."""
+        count_stmt = (
+            select(func.count())
+            .select_from(AgentConfig)
+            .where(AgentConfig.user_id == user_id)
+        )
+        total = (await self.db.execute(count_stmt)).scalar_one()
+
+        offset = (page - 1) * page_size
+        stmt = (
+            select(AgentConfig)
+            .where(AgentConfig.user_id == user_id)
+            .order_by(AgentConfig.updated_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+
+        if enabled_only:
+            stmt = stmt.where(AgentConfig.enabled.is_(True))
+
+        items = list((await self.db.execute(stmt)).scalars().all())
+        return items, total
+
+    async def update_config(
+        self,
+        config_id: str,
+        user_id: int,
+        name: str | None = None,
+        description: str | None = None,
+        llm_model_id: str | None = None,
+        agent_type: str | None = None,
+        max_loop: int | None = None,
+        system_prompt: str | None = None,
+        enabled: bool | None = None,
+    ) -> AgentConfig | None:
+        """Update agent config fields."""
+        config = await self.get_config(config_id, user_id)
+        if not config:
+            return None
+
+        updates: dict[str, Any] = {}
+        if name is not None:
+            updates["name"] = name
+        if description is not None:
+            updates["description"] = description
+        if llm_model_id is not None:
+            updates["llm_model_id"] = llm_model_id
+        if agent_type is not None:
+            updates["agent_type"] = agent_type
+        if max_loop is not None:
+            updates["max_loop"] = max_loop
+        if system_prompt is not None:
+            updates["system_prompt"] = system_prompt
+        if enabled is not None:
+            updates["enabled"] = enabled
+
+        if updates:
+            stmt = (
+                update(AgentConfig).where(AgentConfig.id == config_id).values(**updates)
+            )
+            await self.db.execute(stmt)
+            await self.db.flush()
+            await self.db.refresh(config)
+
+        return config
+
+    async def delete_config(self, config_id: str, user_id: int) -> bool:
+        """Delete agent config (cascade deletes linked tools/MCP/KB)."""
+        config = await self.get_config(config_id, user_id)
+        if not config:
+            return False
+        await self.db.delete(config)
+        await self.db.flush()
+        return True
+
+    # =========================================================================
+    # Config Tools (Phase 4)
+    # =========================================================================
+
+    async def add_config_tool(
+        self,
+        config_id: str,
+        tool_name: str,
+        tool_config: dict | None = None,
+        enabled: bool = True,
+    ) -> AgentConfigTool:
+        """Add a tool to a config."""
+        tool = AgentConfigTool(
+            config_id=config_id,
+            tool_name=tool_name,
+            tool_config=tool_config or {},
+            enabled=enabled,
+        )
+        self.db.add(tool)
+        await self.db.flush()
+        await self.db.refresh(tool)
+        return tool
+
+    async def update_config_tool(
+        self,
+        tool_id: int,
+        tool_config: dict | None = None,
+        enabled: bool | None = None,
+    ) -> AgentConfigTool | None:
+        """Update a config tool."""
+        stmt = select(AgentConfigTool).where(AgentConfigTool.id == tool_id)
+        tool = (await self.db.execute(stmt)).scalar_one_or_none()
+        if not tool:
+            return None
+
+        if tool_config is not None:
+            tool.tool_config = tool_config
+        if enabled is not None:
+            tool.enabled = enabled
+
+        await self.db.flush()
+        await self.db.refresh(tool)
+        return tool
+
+    async def delete_config_tool(self, tool_id: int) -> bool:
+        """Delete a config tool."""
+        stmt = select(AgentConfigTool).where(AgentConfigTool.id == tool_id)
+        tool = (await self.db.execute(stmt)).scalar_one_or_none()
+        if not tool:
+            return False
+        await self.db.delete(tool)
+        await self.db.flush()
+        return True
+
+    async def get_config_tools(self, config_id: str) -> list[AgentConfigTool]:
+        """Get all tools for a config."""
+        stmt = (
+            select(AgentConfigTool)
+            .where(AgentConfigTool.config_id == config_id)
+            .order_by(AgentConfigTool.id)
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    # =========================================================================
+    # Config MCP Servers (Phase 4)
+    # =========================================================================
+
+    async def add_config_mcp_server(
+        self,
+        config_id: str,
+        mcp_server_id: str,
+    ) -> AgentConfigMCP:
+        """Link an MCP server to a config."""
+        link = AgentConfigMCP(
+            config_id=config_id,
+            mcp_server_id=mcp_server_id,
+        )
+        self.db.add(link)
+        await self.db.flush()
+        await self.db.refresh(link)
+        return link
+
+    async def delete_config_mcp_server(self, link_id: int) -> bool:
+        """Unlink an MCP server from a config."""
+        stmt = select(AgentConfigMCP).where(AgentConfigMCP.id == link_id)
+        link = (await self.db.execute(stmt)).scalar_one_or_none()
+        if not link:
+            return False
+        await self.db.delete(link)
+        await self.db.flush()
+        return True
+
+    async def get_config_mcp_links(self, config_id: str) -> list[AgentConfigMCP]:
+        """Get all MCP server links for a config."""
+        stmt = (
+            select(AgentConfigMCP)
+            .where(AgentConfigMCP.config_id == config_id)
+            .order_by(AgentConfigMCP.id)
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    # =========================================================================
+    # Config KB Links (Phase 4)
+    # =========================================================================
+
+    async def add_config_kb(
+        self,
+        config_id: str,
+        kb_id: str,
+        kb_config: dict | None = None,
+    ) -> AgentConfigKB:
+        """Link a knowledge base to a config."""
+        link = AgentConfigKB(
+            config_id=config_id,
+            kb_id=kb_id,
+            kb_config=kb_config or {},
+        )
+        self.db.add(link)
+        await self.db.flush()
+        await self.db.refresh(link)
+        return link
+
+    async def delete_config_kb(self, link_id: int) -> bool:
+        """Unlink a knowledge base from a config."""
+        stmt = select(AgentConfigKB).where(AgentConfigKB.id == link_id)
+        link = (await self.db.execute(stmt)).scalar_one_or_none()
+        if not link:
+            return False
+        await self.db.delete(link)
+        await self.db.flush()
+        return True
+
+    async def get_config_kb_links(self, config_id: str) -> list[AgentConfigKB]:
+        """Get all KB links for a config."""
+        stmt = (
+            select(AgentConfigKB)
+            .where(AgentConfigKB.config_id == config_id)
+            .order_by(AgentConfigKB.id)
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    # =========================================================================
+    # MCP Server CRUD (Phase 4)
+    # =========================================================================
+
+    async def create_mcp_server(
+        self,
+        user_id: int,
+        name: str,
+        url: str,
+        headers: dict | None = None,
+        transport: str = "streamable_http",
+        enabled: bool = True,
+    ) -> AgentMCPServer:
+        """Create a new MCP server for a user."""
+        server = AgentMCPServer(
+            user_id=user_id,
+            name=name,
+            url=url,
+            headers=headers,
+            transport=transport,
+            enabled=enabled,
+        )
+        self.db.add(server)
+        await self.db.flush()
+        await self.db.refresh(server)
+        return server
+
+    async def get_mcp_server(
+        self, server_id: str, user_id: int | None = None
+    ) -> AgentMCPServer | None:
+        """Get MCP server by ID (optionally verify ownership)."""
+        stmt = select(AgentMCPServer).where(AgentMCPServer.id == server_id)
+        if user_id is not None:
+            stmt = stmt.where(AgentMCPServer.user_id == user_id)
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    async def update_mcp_server(
+        self,
+        server_id: str,
+        user_id: int,
+        name: str | None = None,
+        url: str | None = None,
+        headers: dict | None = None,
+        transport: str | None = None,
+        enabled: bool | None = None,
+    ) -> AgentMCPServer | None:
+        """Update MCP server fields."""
+        server = await self.get_mcp_server(server_id, user_id)
+        if not server:
+            return None
+
+        updates: dict[str, Any] = {}
+        if name is not None:
+            updates["name"] = name
+        if url is not None:
+            updates["url"] = url
+        if headers is not None:
+            updates["headers"] = headers
+        if transport is not None:
+            updates["transport"] = transport
+        if enabled is not None:
+            updates["enabled"] = enabled
+
+        if updates:
+            stmt = (
+                update(AgentMCPServer)
+                .where(AgentMCPServer.id == server_id)
+                .values(**updates)
+            )
+            await self.db.execute(stmt)
+            await self.db.flush()
+            await self.db.refresh(server)
+
+        return server
+
+    async def delete_mcp_server(self, server_id: str, user_id: int) -> bool:
+        """Delete MCP server."""
+        server = await self.get_mcp_server(server_id, user_id)
+        if not server:
+            return False
+        await self.db.delete(server)
+        await self.db.flush()
+        return True
+
+    # =========================================================================
+    # Session Config Binding (Phase 4)
+    # =========================================================================
+
+    async def update_session_config(
+        self, session_id: str, config_id: str | None
+    ) -> None:
+        """Update session's config_id binding."""
+        stmt = (
+            update(AgentSession)
+            .where(AgentSession.id == session_id)
+            .values(config_id=config_id, updated_at=now_utc())
+        )
+        await self.db.execute(stmt)
+        await self.db.flush()
+
+    # =========================================================================
+    # Run Snapshot (Phase 4)
+    # =========================================================================
+
+    async def update_run_snapshot(self, run_id: str, snapshot: dict) -> None:
+        """Update run's config_snapshot."""
+        stmt = (
+            update(AgentRun)
+            .where(AgentRun.id == run_id)
+            .values(config_snapshot=snapshot)
+        )
+        await self.db.execute(stmt)
+        await self.db.flush()

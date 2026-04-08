@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime
-from app.modules.agent.tools.implementations.datetime_tool import DateTimeTool
+from app.modules.agent.tools.datetime import DateTimeTool
 
 
 @pytest.mark.asyncio

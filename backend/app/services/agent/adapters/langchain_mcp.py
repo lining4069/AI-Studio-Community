@@ -1,15 +1,19 @@
-"""LangChain tool adapter for Agent tools.
+"""
+LangChain MCP Adapter - converts LangChain BaseTool to our Tool interface.
 
-This module provides LangChainToolAdapter that wraps LangChain BaseTool
-(StructuredTool) to conform to our Tool ABC interface.
+This module provides:
+1. LangChainToolAdapter: wraps LangChain BaseTool as Tool
+2. to_mcp_tools: converts list of LangChain tools to our Tool interface
+
+Used for loading MCP tools via langchain-mcp-adapters.
 """
 
 from typing import Any, get_origin
 
 from langchain_core.tools import BaseTool
 
-from app.services.agent.tools.base import Tool
-from app.services.agent.tools.spec import ToolSpec
+from app.modules.agent.tools.base import Tool
+from app.modules.agent.tools.spec import ToolSpec
 
 
 class LangChainToolAdapter(Tool):
@@ -101,3 +105,16 @@ class LangChainToolAdapter(Tool):
             input_schema=self.input_schema,
             output_schema=self.output_schema,
         )
+
+
+def to_mcp_tools(lc_tools: list[BaseTool]) -> list[Any]:
+    """
+    Convert LangChain BaseTool list (from langchain-mcp-adapters) to our Tool interface.
+
+    Args:
+        lc_tools: List of LangChain BaseTool instances (e.g., from load_mcp_tools)
+
+    Returns:
+        List of Tool instances (LangChainToolAdapter wrapped)
+    """
+    return [LangChainToolAdapter(lc_tool=t) for t in lc_tools]

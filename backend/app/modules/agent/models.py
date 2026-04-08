@@ -3,8 +3,16 @@
 import uuid
 from enum import StrEnum
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.base import Base, TimestampMixin
 
@@ -52,6 +60,7 @@ class AgentSession(Base, TimestampMixin):
     Agent conversation session.
 
     Represents a single conversation session with memory (summary).
+    Links to an AgentConfig for persistent configuration.
     """
 
     __tablename__ = "agent_sessions"
@@ -61,7 +70,12 @@ class AgentSession(Base, TimestampMixin):
     )
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
-    # Session configuration (for future use in Phase 2+)
+    # Session configuration (Phase 4: links to AgentConfig)
+    config_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("agent_configs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     mode: Mapped[str] = mapped_column(String(20), default=AgentMode.ASSISTANT.value)
@@ -84,6 +98,8 @@ class AgentRun(Base, TimestampMixin):
 
     Represents one complete execution of the Agent (one /runs API request).
     Run status lifecycle: running -> success / error / interrupted
+
+    Phase 4: config_snapshot stores the config at run time for reproducibility.
     """
 
     __tablename__ = "agent_runs"
@@ -118,6 +134,10 @@ class AgentRun(Base, TimestampMixin):
 
     # Traceability (for logs/observability)
     trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Phase 4: Config snapshot for reproducibility
+    # Frozen copy of AgentConfig at run time (not in Session to ensure run reproducibility)
+    config_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     def __repr__(self):
         return f"<AgentRun(id={self.id}, status={self.status})>"
@@ -229,7 +249,7 @@ class AgentStep(Base, TimestampMixin):
 
 
 # ============================================================================
-# Agent MCP Server (Phase 3)
+# Agent MCP Server (Phase 3, enhanced Phase 4)
 # ============================================================================
 
 
@@ -239,12 +259,20 @@ class AgentMCPServer(Base, TimestampMixin):
 
     Stores connection config for MCP servers that provide tools
     via the Model Context Protocol.
+
+    Phase 4: Added user_id for ownership and isolation.
     """
 
     __tablename__ = "agent_mcp_servers"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_mcp_server_user_name"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(64), primary_key=True, default=lambda: uuid.uuid4().hex
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     url: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -254,3 +282,145 @@ class AgentMCPServer(Base, TimestampMixin):
 
     def __repr__(self):
         return f"<AgentMCPServer(id={self.id}, name={self.name}, transport={self.transport})>"
+
+
+# ============================================================================
+# Agent Config (Phase 4)
+# ============================================================================
+
+
+class AgentConfig(Base, TimestampMixin):
+    """
+    Persistent configuration template for an Agent/Assistant.
+
+    Defines which tools, MCP servers, knowledge bases, and LLM to use.
+    Sessions reference a config to get consistent tool availability.
+
+    Phase 4: Replaces system-wide tool loading with per-config selection.
+    """
+
+    __tablename__ = "agent_configs"
+
+    id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: uuid.uuid4().hex
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # LLM Configuration
+    llm_model_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Agent Behavior
+    agent_type: Mapped[str] = mapped_column(
+        String(20), default="simple"
+    )  # "simple" | "react"
+    max_loop: Mapped[int] = mapped_column(Integer, default=5)
+    system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Relations
+    tools: Mapped[list["AgentConfigTool"]] = relationship(
+        back_populates="agent_config", cascade="all, delete-orphan"
+    )
+    mcp_links: Mapped[list["AgentConfigMCP"]] = relationship(
+        back_populates="agent_config", cascade="all, delete-orphan"
+    )
+    kb_links: Mapped[list["AgentConfigKB"]] = relationship(
+        back_populates="agent_config", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self):
+        return f"<AgentConfig(id={self.id}, name={self.name}, agent_type={self.agent_type})>"
+
+
+class AgentConfigTool(Base):
+    """
+    Association table for AgentConfig -> built-in tools.
+
+    Stores per-tool configuration (e.g., websearch api_key).
+    Unique constraint ensures no duplicate tool names per config.
+
+    Phase 4: Replaces JSON array of tool names with proper relation.
+    """
+
+    __tablename__ = "agent_config_tools"
+    __table_args__ = (
+        UniqueConstraint("config_id", "tool_name", name="uq_config_tool"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    config_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agent_configs.id", ondelete="CASCADE"), nullable=False
+    )
+    tool_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    # NOTE: column is tool_config (NOT config) to avoid SQLAlchemy relationship name conflict
+    tool_config: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    agent_config: Mapped["AgentConfig"] = relationship(back_populates="tools")
+
+    def __repr__(self):
+        return f"<AgentConfigTool(tool_name={self.tool_name}, enabled={self.enabled})>"
+
+
+class AgentConfigMCP(Base):
+    """
+    Association table for AgentConfig -> MCP servers.
+
+    Links a config to MCP servers for tool loading.
+    Unique constraint ensures no duplicate MCP links per config.
+
+    Phase 4: Enables per-config MCP server selection.
+    """
+
+    __tablename__ = "agent_config_mcp_servers"
+    __table_args__ = (
+        UniqueConstraint("config_id", "mcp_server_id", name="uq_config_mcp"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    config_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agent_configs.id", ondelete="CASCADE"), nullable=False
+    )
+    mcp_server_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("agent_mcp_servers.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    agent_config: Mapped["AgentConfig"] = relationship(back_populates="mcp_links")
+    mcp_server: Mapped["AgentMCPServer"] = relationship()
+
+    def __repr__(self):
+        return f"<AgentConfigMCP(mcp_server_id={self.mcp_server_id})>"
+
+
+class AgentConfigKB(Base):
+    """
+    Association table for AgentConfig -> knowledge bases.
+
+    Links a config to knowledge bases for RAG retrieval.
+    Unique constraint ensures no duplicate KB links per config.
+    Stores per-KB config like top_k, rank_threshold.
+
+    Phase 4: Enables per-config KB selection.
+    """
+
+    __tablename__ = "agent_config_kbs"
+    __table_args__ = (UniqueConstraint("config_id", "kb_id", name="uq_config_kb"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    config_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agent_configs.id", ondelete="CASCADE"), nullable=False
+    )
+    kb_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kb_config: Mapped[dict] = mapped_column(JSON, default=dict)  # top_k, threshold
+
+    agent_config: Mapped["AgentConfig"] = relationship(back_populates="kb_links")
+
+    def __repr__(self):
+        return f"<AgentConfigKB(kb_id={self.kb_id})>"

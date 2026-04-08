@@ -1,5 +1,5 @@
 import pytest
-from app.modules.agent.tools.implementations.rag_tool import RAGRetrievalTool
+from app.modules.agent.tools.rag_tool import RAGRetrievalTool
 
 
 def test_rag_tool_name():
