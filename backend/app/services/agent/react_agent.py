@@ -23,8 +23,8 @@ from app.services.agent.core import (
     StepType,
 )
 from app.services.agent.prompt_builder import build_messages, build_system_prompt
-from app.services.providers.base import LLMProvider
 from app.services.agent.tools.adapters import to_openai_tools
+from app.services.providers.base import LLMProvider
 
 
 class ReactAgent:
