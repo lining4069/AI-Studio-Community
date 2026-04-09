@@ -10,7 +10,7 @@ from app.modules.agent.domain import (
     MCPConfigItem,
     ToolConfigItem,
 )
-from app.modules.agent.models import AgentConfig
+from app.modules.agent.models import AgentConfig, AgentConfigMCP
 
 
 class AgentConfigLoader:
@@ -52,9 +52,7 @@ class AgentConfigLoader:
             select(AgentConfig)
             .options(
                 selectinload(AgentConfig.tools),
-                selectinload(AgentConfig.mcp_links).selectinload(
-                    AgentConfig.mcp_server
-                ),
+                selectinload(AgentConfig.mcp_links).selectinload(AgentConfigMCP.mcp_server),
                 selectinload(AgentConfig.kb_links),
             )
             .where(AgentConfig.id == config_id)
@@ -94,9 +92,7 @@ class AgentConfigLoader:
             select(AgentConfig)
             .options(
                 selectinload(AgentConfig.tools),
-                selectinload(AgentConfig.mcp_links).selectinload(
-                    AgentConfig.mcp_server
-                ),
+                selectinload(AgentConfig.mcp_links).selectinload(AgentConfigMCP.mcp_server),
                 selectinload(AgentConfig.kb_links),
             )
             .where(AgentConfig.user_id == user_id)

@@ -375,14 +375,16 @@ async def add_config_tool(
     response_model=APIResponse[AgentConfigToolResponse],
 )
 async def update_config_tool(
-    config_id: str,  # noqa: ARG001
+    config_id: str,
     tool_id: int,
     data: AgentConfigToolUpdate,
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: CurrentUser,
     service: AgentServiceDep,
 ):
     """Update a tool in a config."""
     tool = await service.update_config_tool(
+        config_id=config_id,
+        user_id=current_user.id,
         tool_id=tool_id,
         tool_config=data.tool_config,
         enabled=data.enabled,
@@ -396,13 +398,17 @@ async def update_config_tool(
 
 @router.delete("/configs/{config_id}/tools/{tool_id}", status_code=204)
 async def delete_config_tool(
-    config_id: str,  # noqa: ARG001
+    config_id: str,
     tool_id: int,
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: CurrentUser,
     service: AgentServiceDep,
 ):
     """Remove a tool from a config."""
-    deleted = await service.delete_config_tool(tool_id)
+    deleted = await service.delete_config_tool(
+        config_id=config_id,
+        user_id=current_user.id,
+        tool_id=tool_id,
+    )
     if not deleted:
         from fastapi import HTTPException
 
@@ -461,13 +467,17 @@ async def link_mcp_server(
 
 @router.delete("/configs/{config_id}/mcp-servers/{link_id}", status_code=204)
 async def unlink_mcp_server(
-    config_id: str,  # noqa: ARG001
+    config_id: str,
     link_id: int,
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: CurrentUser,
     service: AgentServiceDep,
 ):
     """Unlink an MCP server from a config."""
-    deleted = await service.delete_config_mcp_server(link_id)
+    deleted = await service.delete_config_mcp_server(
+        config_id=config_id,
+        user_id=current_user.id,
+        link_id=link_id,
+    )
     if not deleted:
         from fastapi import HTTPException
 
@@ -507,13 +517,17 @@ async def link_kb(
 
 @router.delete("/configs/{config_id}/kbs/{link_id}", status_code=204)
 async def unlink_kb(
-    config_id: str,  # noqa: ARG001
+    config_id: str,
     link_id: int,
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: CurrentUser,
     service: AgentServiceDep,
 ):
     """Unlink a knowledge base from a config."""
-    deleted = await service.delete_config_kb(link_id)
+    deleted = await service.delete_config_kb(
+        config_id=config_id,
+        user_id=current_user.id,
+        link_id=link_id,
+    )
     if not deleted:
         from fastapi import HTTPException
 

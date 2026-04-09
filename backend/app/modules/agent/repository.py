@@ -473,11 +473,17 @@ class AgentRepository:
     async def update_config_tool(
         self,
         tool_id: int,
+        config_id: str | None = None,
+        user_id: int | None = None,
         tool_config: dict | None = None,
         enabled: bool | None = None,
     ) -> AgentConfigTool | None:
         """Update a config tool."""
         stmt = select(AgentConfigTool).where(AgentConfigTool.id == tool_id)
+        if config_id is not None:
+            stmt = stmt.where(AgentConfigTool.config_id == config_id)
+        if user_id is not None:
+            stmt = stmt.join(AgentConfig).where(AgentConfig.user_id == user_id)
         tool = (await self.db.execute(stmt)).scalar_one_or_none()
         if not tool:
             return None
@@ -491,9 +497,18 @@ class AgentRepository:
         await self.db.refresh(tool)
         return tool
 
-    async def delete_config_tool(self, tool_id: int) -> bool:
+    async def delete_config_tool(
+        self,
+        tool_id: int,
+        config_id: str | None = None,
+        user_id: int | None = None,
+    ) -> bool:
         """Delete a config tool."""
         stmt = select(AgentConfigTool).where(AgentConfigTool.id == tool_id)
+        if config_id is not None:
+            stmt = stmt.where(AgentConfigTool.config_id == config_id)
+        if user_id is not None:
+            stmt = stmt.join(AgentConfig).where(AgentConfig.user_id == user_id)
         tool = (await self.db.execute(stmt)).scalar_one_or_none()
         if not tool:
             return False
@@ -529,9 +544,18 @@ class AgentRepository:
         await self.db.refresh(link)
         return link
 
-    async def delete_config_mcp_server(self, link_id: int) -> bool:
+    async def delete_config_mcp_server(
+        self,
+        link_id: int,
+        config_id: str | None = None,
+        user_id: int | None = None,
+    ) -> bool:
         """Unlink an MCP server from a config."""
         stmt = select(AgentConfigMCP).where(AgentConfigMCP.id == link_id)
+        if config_id is not None:
+            stmt = stmt.where(AgentConfigMCP.config_id == config_id)
+        if user_id is not None:
+            stmt = stmt.join(AgentConfig).where(AgentConfig.user_id == user_id)
         link = (await self.db.execute(stmt)).scalar_one_or_none()
         if not link:
             return False
@@ -569,9 +593,18 @@ class AgentRepository:
         await self.db.refresh(link)
         return link
 
-    async def delete_config_kb(self, link_id: int) -> bool:
+    async def delete_config_kb(
+        self,
+        link_id: int,
+        config_id: str | None = None,
+        user_id: int | None = None,
+    ) -> bool:
         """Unlink a knowledge base from a config."""
         stmt = select(AgentConfigKB).where(AgentConfigKB.id == link_id)
+        if config_id is not None:
+            stmt = stmt.where(AgentConfigKB.config_id == config_id)
+        if user_id is not None:
+            stmt = stmt.join(AgentConfig).where(AgentConfig.user_id == user_id)
         link = (await self.db.execute(stmt)).scalar_one_or_none()
         if not link:
             return False

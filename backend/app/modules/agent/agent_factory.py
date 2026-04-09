@@ -15,7 +15,7 @@ def create_agent(
     agent_type: str,
     tools: list[Tool],
     llm: LLMProvider,
-    run_id: str,
+    run_id: str | None,
     config: DomainConfig | None = None,
 ) -> SimpleAgent | ReactAgent:
     """

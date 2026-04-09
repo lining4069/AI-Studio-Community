@@ -207,6 +207,7 @@ class SimpleAgent:
                     state.tool_results[tool_name] = tool_result
 
                     # After tool execution, loop back for another LLM call
+                    loop_count += 1
                     continue
 
                 else:

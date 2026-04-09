@@ -11,20 +11,34 @@ MCP Session 管理。
 2. transport 流（外层）
 """
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 from mcp import ClientSession, McpError
 from mcp.client.sse import sse_client
-from mcp.client.stdio import stdio_client
+from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.client import StdioServerParameters
 
 from app.services.mcp.exceptions import (
     MCPConnectionError,
     MCPProtocolError,
     MCPValidationError,
 )
+
+
+def _require_str(value: str | None, field_name: str) -> str:
+    """Narrow optional string after transport-specific validation."""
+    if value is None:
+        raise MCPValidationError(f"{field_name} is required")
+    return value
+
+
+def _require_str_list(value: list[str] | None, field_name: str) -> list[str]:
+    """Narrow optional string list after transport-specific validation."""
+    if value is None:
+        raise MCPValidationError(f"{field_name} is required")
+    return value
 
 
 @asynccontextmanager
@@ -36,7 +50,7 @@ async def create_session(
     env: dict[str, str] | None = None,
     cwd: str | None = None,
     headers: dict[str, Any] | None = None,
-    timeout: float = 5.0,
+    timeout: float = 5.0,  # noqa: ASYNC109
     sse_read_timeout: float = 300.0,
 ) -> AsyncIterator[ClientSession]:
     """
@@ -73,9 +87,11 @@ async def create_session(
 
     try:
         if transport == "stdio":
+            command_value = _require_str(command, "command")
+            args_value = _require_str_list(args, "args")
             params = StdioServerParameters(
-                command=command,
-                args=args,
+                command=command_value,
+                args=args_value,
                 env=env,
                 cwd=cwd,
             )
@@ -85,8 +101,9 @@ async def create_session(
                     yield session
 
         elif transport == "sse":
+            url_value = _require_str(url, "url")
             async with sse_client(
-                url,
+                url_value,
                 headers=headers,
                 timeout=timeout,
                 sse_read_timeout=sse_read_timeout,
@@ -96,7 +113,12 @@ async def create_session(
                     yield session
 
         elif transport == "streamable_http":
-            async with streamablehttp_client(url, headers=headers) as (read, write, _):
+            url_value = _require_str(url, "url")
+            async with streamablehttp_client(url_value, headers=headers) as (
+                read,
+                write,
+                _,
+            ):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     yield session

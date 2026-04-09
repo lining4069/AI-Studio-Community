@@ -11,7 +11,7 @@ from loguru import logger
 from app.common.exceptions import NotFoundException
 from app.modules.agent.agent_factory import create_agent
 from app.modules.agent.config_loader import AgentConfigLoader
-from app.modules.agent.domain import DomainConfig
+from app.modules.agent.domain import DomainConfig, MCPConfigItem
 from app.modules.agent.models import AgentSession
 from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
@@ -42,6 +42,22 @@ class AgentService:
     ):
         self.repo = repo
         self.llm_model_repo = llm_model_repo
+
+    @staticmethod
+    def _require_step_id(step: Any) -> str:
+        """Narrow persisted step id before repository updates."""
+        step_id = getattr(step, "id", None)
+        if step_id is None:
+            raise ValueError("step.id must be set before persistence update")
+        return step_id
+
+    @staticmethod
+    def _require_step_index(step: Any) -> int:
+        """Narrow step index before repository inserts."""
+        step_index = getattr(step, "step_index", None)
+        if step_index is None:
+            raise ValueError("step.step_index must be set before persistence")
+        return step_index
 
     # =========================================================================
     # Session Management
@@ -218,10 +234,11 @@ class AgentService:
         llm = await self._get_llm_for_session(session, user_id)
 
         # Phase 4: Load config and build tools
-        domain_config: DomainConfig | None = None
-        if session.config_id:
-            config_loader = AgentConfigLoader(self.repo.db)
-            domain_config = await config_loader.load(session.config_id, user_id)
+        domain_config = await self._resolve_runtime_config(
+            session_config_id=session.config_id,
+            user_id=user_id,
+            request_mcp_server_ids=request.mcp_server_ids,
+        )
 
         rag_service = None
         tool_builder = ToolBuilder(rag_service=rag_service)
@@ -333,10 +350,11 @@ class AgentService:
         llm = await self._get_llm_for_session(session, user_id)
 
         # Phase 4: Load config and build tools
-        domain_config: DomainConfig | None = None
-        if session.config_id:
-            config_loader = AgentConfigLoader(self.repo.db)
-            domain_config = await config_loader.load(session.config_id, user_id)
+        domain_config = await self._resolve_runtime_config(
+            session_config_id=session.config_id,
+            user_id=user_id,
+            request_mcp_server_ids=request.mcp_server_ids,
+        )
 
         # Build tools via ToolBuilder
         rag_service = None  # TODO: Create RAG service from knowledge_base
@@ -460,8 +478,9 @@ class AgentService:
                 elif event.event == AgentEventType.STEP_END and step is not None:
                     # step_end: UPDATE step record
                     event_data = event.data
+                    step_id = self._require_step_id(step)
                     await self.repo.update_step(
-                        step_id=step.id,
+                        step_id=step_id,
                         status=event_data.get("status"),
                         output=event_data.get("output"),
                         latency_ms=event_data.get("latency_ms"),
@@ -478,8 +497,9 @@ class AgentService:
                         "tool_call": event.data.get("tool"),
                         "arguments": event.data.get("arguments"),
                     }
+                    step_id = self._require_step_id(step)
                     await self.repo.update_step(
-                        step_id=step.id,
+                        step_id=step_id,
                         status="success",
                         output=step.output,
                     )
@@ -672,6 +692,7 @@ class AgentService:
         )
 
         async def event_generator() -> AsyncGenerator[bytes, None]:
+            skipped_step_keys: set[tuple[int | None, str | None, str]] = set()
             # Create new run (continuation)
             new_run = await self.repo.create_run(
                 session_id=original_run.session_id,
@@ -758,13 +779,25 @@ class AgentService:
                         )
                         if existing and existing.status == "success":
                             # Skip - step already succeeded in original run
+                            skipped_step_keys.add(
+                                (step.step_index, step.name, str(step.type))
+                            )
                             continue
 
+                if step is not None and (
+                    step.step_index,
+                    step.name,
+                    str(step.type),
+                ) in skipped_step_keys:
+                    continue
+
+                if event.event == AgentEventType.STEP_START and step is not None:
+                    step_index = self._require_step_index(step)
                     # Create step record
                     db_step = await self.repo.create_step(
                         session_id=original_run.session_id,
                         run_id=new_run.id,
-                        step_index=step.step_index,
+                        step_index=step_index,
                         type=step.type,
                         name=step.name,
                         step_input=step.input,
@@ -780,8 +813,9 @@ class AgentService:
 
                 elif event.event == AgentEventType.STEP_END and step is not None:
                     event_data = event.data
+                    step_id = self._require_step_id(step)
                     await self.repo.update_step(
-                        step_id=step.id,
+                        step_id=step_id,
                         status=event_data.get("status"),
                         output=event_data.get("output"),
                         latency_ms=event_data.get("latency_ms"),
@@ -797,8 +831,9 @@ class AgentService:
                         "tool_call": event.data.get("tool"),
                         "arguments": event.data.get("arguments"),
                     }
+                    step_id = self._require_step_id(step)
                     await self.repo.update_step(
-                        step_id=step.id,
+                        step_id=step_id,
                         status="success",
                         output=step.output,
                     )
@@ -985,6 +1020,8 @@ class AgentService:
 
     async def update_config_tool(
         self,
+        config_id: str,
+        user_id: int,
         tool_id: int,
         tool_config: dict | None = None,
         enabled: bool | None = None,
@@ -992,6 +1029,8 @@ class AgentService:
         """Update a config tool."""
         tool = await self.repo.update_config_tool(
             tool_id=tool_id,
+            config_id=config_id,
+            user_id=user_id,
             tool_config=tool_config,
             enabled=enabled,
         )
@@ -1005,9 +1044,15 @@ class AgentService:
             "enabled": tool.enabled,
         }
 
-    async def delete_config_tool(self, tool_id: int) -> bool:
+    async def delete_config_tool(
+        self, config_id: str, user_id: int, tool_id: int
+    ) -> bool:
         """Delete a config tool."""
-        return await self.repo.delete_config_tool(tool_id)
+        return await self.repo.delete_config_tool(
+            tool_id=tool_id,
+            config_id=config_id,
+            user_id=user_id,
+        )
 
     async def get_config_tools(self, config_id: str) -> list[dict]:
         """Get all tools for a config."""
@@ -1040,9 +1085,15 @@ class AgentService:
             "mcp_server_id": link.mcp_server_id,
         }
 
-    async def delete_config_mcp_server(self, link_id: int) -> bool:
+    async def delete_config_mcp_server(
+        self, config_id: str, user_id: int, link_id: int
+    ) -> bool:
         """Unlink an MCP server from a config."""
-        return await self.repo.delete_config_mcp_server(link_id)
+        return await self.repo.delete_config_mcp_server(
+            link_id=link_id,
+            config_id=config_id,
+            user_id=user_id,
+        )
 
     async def get_config_mcp_links(self, config_id: str) -> list[dict]:
         """Get all MCP server links for a config."""
@@ -1076,9 +1127,15 @@ class AgentService:
             "kb_config": link.kb_config,
         }
 
-    async def delete_config_kb(self, link_id: int) -> bool:
+    async def delete_config_kb(
+        self, config_id: str, user_id: int, link_id: int
+    ) -> bool:
         """Unlink a knowledge base from a config."""
-        return await self.repo.delete_config_kb(link_id)
+        return await self.repo.delete_config_kb(
+            link_id=link_id,
+            config_id=config_id,
+            user_id=user_id,
+        )
 
     async def get_config_kb_links(self, config_id: str) -> list[dict]:
         """Get all KB links for a config."""
@@ -1241,8 +1298,8 @@ class AgentService:
             return {"success": False, "message": "Server not found", "tools_count": 0}
 
         try:
-            from app.services.mcp.session import create_session
             from app.services.mcp.exceptions import MCPError
+            from app.services.mcp.session import create_session
 
             async with create_session(
                 transport=server.transport,
@@ -1263,7 +1320,7 @@ class AgentService:
                 "message": "Connection successful",
                 "tools_count": len(result.tools),
             }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "success": False,
                 "message": "Connection timeout after 30s",
@@ -1291,6 +1348,10 @@ class AgentService:
     ) -> None:
         """Update session's config_id binding."""
         await self.get_session(session_id, user_id)  # Verify ownership
+        if config_id is not None:
+            config = await self.get_config(config_id, user_id)
+            if not config:
+                raise NotFoundException("AgentConfig", config_id)
         await self.repo.update_session_config(session_id, config_id)
 
     # =========================================================================
@@ -1337,6 +1398,18 @@ class AgentService:
                     "required": ["query"],
                 },
             },
+            {
+                "name": "rag_retrieval",
+                "description": "知识库检索",
+                "has_config": False,
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "检索关键词"}
+                    },
+                    "required": ["query"],
+                },
+            },
         ]
 
     # =========================================================================
@@ -1369,3 +1442,70 @@ class AgentService:
             }
             for t in tools
         ], warnings
+
+    async def _resolve_runtime_config(
+        self,
+        session_config_id: str | None,
+        user_id: int,
+        request_mcp_server_ids: list[str],
+    ) -> DomainConfig | None:
+        """Load session config and merge per-run MCP server selection."""
+        domain_config: DomainConfig | None = None
+        if session_config_id:
+            config_loader = AgentConfigLoader(self.repo.db)
+            domain_config = await config_loader.load(session_config_id, user_id)
+
+        if not request_mcp_server_ids:
+            return domain_config
+
+        mcp_servers = await self.repo.get_mcp_servers(
+            server_ids=request_mcp_server_ids,
+            enabled_only=True,
+            user_id=user_id,
+        )
+        found_ids = {server.id for server in mcp_servers}
+        missing_ids = [
+            server_id
+            for server_id in request_mcp_server_ids
+            if server_id not in found_ids
+        ]
+        if missing_ids:
+            raise NotFoundException("MCP server", ",".join(missing_ids))
+
+        request_config = DomainConfig(
+            id="__runtime__",
+            user_id=user_id,
+            name="runtime-request-config",
+            agent_type=domain_config.agent_type if domain_config else "simple",
+            max_loop=domain_config.max_loop if domain_config else 5,
+            system_prompt=domain_config.system_prompt if domain_config else None,
+            llm_model_id=domain_config.llm_model_id if domain_config else None,
+            mcp_servers=[
+                MCPConfigItem(
+                    mcp_server_id=server.id,
+                    name=server.name,
+                    transport=server.transport,
+                    url=server.url,
+                    headers=server.headers,
+                    command=server.command,
+                    args=server.args,
+                    env=server.env,
+                    cwd=server.cwd,
+                    enabled=server.enabled,
+                )
+                for server in mcp_servers
+            ],
+        )
+
+        if not domain_config:
+            return request_config
+
+        existing_ids = {server.mcp_server_id for server in domain_config.mcp_servers}
+        domain_config.mcp_servers.extend(
+            [
+                server
+                for server in request_config.mcp_servers
+                if server.mcp_server_id not in existing_ids
+            ]
+        )
+        return domain_config

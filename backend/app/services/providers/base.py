@@ -62,6 +62,19 @@ class LLMProvider(ABC):
         """
         pass
 
+    async def ainvoke(self, prompt: str, **kwargs) -> dict[str, Any]:
+        """
+        Convenience wrapper for prompt-only invocations.
+
+        Best practice is to keep the typed contract at the provider boundary,
+        then delegate to `achat()` with a synthetic user message.
+        """
+        return await self.achat(
+            messages=[{"role": "user", "content": prompt}],
+            tools=None,
+            **kwargs,
+        )
+
 
 class EmbeddingProvider(ABC):
     """

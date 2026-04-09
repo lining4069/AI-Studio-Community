@@ -12,8 +12,6 @@ MCP 接入（Phase 5 重构）：
 - MCPToolAdapter 负责：接入 (Provider→Tool) + 数据转化 (Schema 映射)
 """
 
-import asyncio
-
 from app.modules.agent.domain import (
     DomainConfig,
     MCPConfigItem,
@@ -22,13 +20,13 @@ from app.modules.agent.domain import (
 from app.modules.agent.tools.base import Tool
 from app.modules.agent.tools.builtin_mcp_registry import registry as builtin_registry
 from app.services.mcp import (
-    MCPProvider,
-    MCPToolDefinition,
-    create_mcp_provider,
     MCPConnectionError,
     MCPProtocolError,
-    MCPValidationError,
+    MCPProvider,
+    MCPToolDefinition,
     MCPToolExecutionError,
+    MCPValidationError,
+    create_mcp_provider,
 )
 
 
@@ -160,7 +158,7 @@ class ToolBuilder:
         tool_defs = await provider.list_tools()
 
         # 3. 创建适配器：将 MCP Provider 接入 Tool ABC
-        adapters = []
+        adapters: list[Tool] = []
         for tool_def in tool_defs:
             adapters.append(
                 MCPToolAdapter(
@@ -228,9 +226,7 @@ class MCPToolAdapter(Tool):
         except MCPConnectionError:
             raise
         except Exception as e:
-            raise MCPToolExecutionError(
-                f"Tool {self.name} failed: {e}"
-            ) from e
+            raise MCPToolExecutionError(f"Tool {self.name} failed: {e}") from e
 
     def _adapt_output(self, mcp_result: dict) -> dict:
         """

@@ -1,0 +1,263 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from app.common.exceptions import NotFoundException
+from app.modules.agent import router as agent_router_module
+from app.modules.agent.schema import AgentConfigToolUpdate, AgentRunRequest
+from app.modules.agent.service import AgentService
+from app.modules.agent.tools.base import Tool
+from app.services.agent.core import (
+    AgentEvent,
+    AgentEventType,
+    AgentState,
+    Step,
+    StepType,
+)
+from app.services.agent.simple_agent import SimpleAgent
+
+
+class _AlwaysToolLLM:
+    provider_name = "always-tool"
+
+    async def achat(self, messages, **kwargs):
+        return {
+            "content": "using tool",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "function": {
+                        "name": "echo",
+                        "arguments": {"value": "x"},
+                    },
+                }
+            ],
+        }
+
+
+class _EchoTool(Tool):
+    name = "echo"
+    description = "echo"
+    input_schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+
+    async def run(self, input: dict) -> dict:
+        return {"value": input["value"]}
+
+
+class _FakeRunAgent:
+    async def run(self, state: AgentState) -> AgentState:
+        state.output = "done"
+        state.finished = True
+        return state
+
+
+class _FakeResumeAgent:
+    async def stream_run(self, state: AgentState):
+        step = Step(type=StepType.TOOL, name="calculator", input={"arguments": {"x": 1}})
+        state.add_step(step)
+        yield step, AgentEvent(AgentEventType.STEP_START, step.to_dict())
+        yield step, AgentEvent(
+            AgentEventType.STEP_END,
+            {
+                "step_index": step.step_index,
+                "status": "success",
+                "output": {"result": 1},
+                "latency_ms": 1,
+            },
+        )
+        state.output = "done"
+        state.finished = True
+        yield None, AgentEvent(AgentEventType.RUN_END, {"output": "done"})
+
+
+@pytest.mark.asyncio
+async def test_update_config_tool_handler_passes_config_and_user_context():
+    service = AsyncMock()
+    current_user = SimpleNamespace(id=7)
+    data = AgentConfigToolUpdate(tool_config={"k": "v"}, enabled=True)
+
+    await agent_router_module.update_config_tool(
+        "cfg-1", 11, data, current_user, service
+    )
+
+    service.update_config_tool.assert_awaited_once_with(
+        config_id="cfg-1",
+        user_id=7,
+        tool_id=11,
+        tool_config={"k": "v"},
+        enabled=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_config_tool_handler_passes_config_and_user_context():
+    service = AsyncMock()
+    service.delete_config_tool.return_value = True
+    current_user = SimpleNamespace(id=7)
+
+    await agent_router_module.delete_config_tool("cfg-1", 11, current_user, service)
+
+    service.delete_config_tool.assert_awaited_once_with(
+        config_id="cfg-1",
+        user_id=7,
+        tool_id=11,
+    )
+
+
+@pytest.mark.asyncio
+async def test_unlink_handlers_pass_config_and_user_context():
+    service = AsyncMock()
+    service.delete_config_mcp_server.return_value = True
+    service.delete_config_kb.return_value = True
+    current_user = SimpleNamespace(id=9)
+
+    await agent_router_module.unlink_mcp_server("cfg-2", 21, current_user, service)
+    await agent_router_module.unlink_kb("cfg-2", 31, current_user, service)
+
+    service.delete_config_mcp_server.assert_awaited_once_with(
+        config_id="cfg-2",
+        user_id=9,
+        link_id=21,
+    )
+    service.delete_config_kb.assert_awaited_once_with(
+        config_id="cfg-2",
+        user_id=9,
+        link_id=31,
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_session_config_rejects_foreign_or_missing_config():
+    repo = AsyncMock()
+    repo.get_session.return_value = SimpleNamespace(id="sess-1", user_id=1)
+    repo.get_config.return_value = None
+    service = AgentService(repo, AsyncMock())
+
+    with pytest.raises(NotFoundException):
+        await service.update_session_config("sess-1", 1, "cfg-missing")
+
+    repo.update_session_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resume_skips_followup_events_for_already_completed_step():
+    repo = AsyncMock()
+    repo.get_run.return_value = SimpleNamespace(
+        id="run-1",
+        session_id="sess-1",
+        config_snapshot=None,
+    )
+    repo.get_session.return_value = SimpleNamespace(
+        id="sess-1",
+        user_id=1,
+        summary=None,
+    )
+    repo.get_steps.return_value = [
+        SimpleNamespace(
+            status="success",
+            step_index=0,
+            type="tool",
+            name="calculator",
+            output={"result": 1},
+        )
+    ]
+    repo.get_messages.return_value = []
+    repo.create_run.return_value = SimpleNamespace(id="run-2")
+    repo.get_step_by_idempotency_key.return_value = SimpleNamespace(status="success")
+    service = AgentService(repo, AsyncMock())
+    service._get_llm_for_session = AsyncMock(return_value=SimpleNamespace())
+    service._generate_summary = AsyncMock(return_value=None)
+
+    with (
+        patch("app.modules.agent.service.ToolBuilder.build", new=AsyncMock(return_value=([], []))),
+        patch("app.modules.agent.service.create_agent", return_value=_FakeResumeAgent()),
+    ):
+        response = await service.resume_agent(
+            "run-1",
+            1,
+            AgentRunRequest(input="resume", stream=True),
+        )
+
+        async for _ in response.body_iterator:
+            pass
+
+    repo.update_step.assert_not_awaited()
+    repo.create_step.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_simple_agent_run_honors_max_loop_on_repeated_tool_calls():
+    agent = SimpleAgent(
+        llm=_AlwaysToolLLM(),
+        tools=[_EchoTool()],
+        max_loop=2,
+    )
+    state = AgentState(session_id="sess-1", user_input="loop")
+
+    result = await agent.run(state)
+
+    assert len(result.steps) == 4
+
+
+@pytest.mark.asyncio
+async def test_run_agent_uses_request_mcp_server_ids():
+    repo = AsyncMock()
+    repo.get_session.return_value = SimpleNamespace(
+        id="sess-1",
+        user_id=1,
+        config_id=None,
+        summary=None,
+    )
+    repo.get_messages.return_value = []
+    repo.get_mcp_servers.return_value = [
+        SimpleNamespace(
+            id="mcp-1",
+            name="GitHub MCP",
+            transport="streamable_http",
+            url="https://example.com/mcp",
+            headers=None,
+            command=None,
+            args=None,
+            env=None,
+            cwd=None,
+            enabled=True,
+        )
+    ]
+    service = AgentService(repo, AsyncMock())
+    service._get_llm_for_session = AsyncMock(return_value=SimpleNamespace())
+
+    captured_configs = []
+
+    async def _capture_build(config):
+        captured_configs.append(config)
+        return [], []
+
+    with (
+        patch("app.modules.agent.service.ToolBuilder.build", new=AsyncMock(side_effect=_capture_build)),
+        patch("app.modules.agent.service.create_agent", return_value=_FakeRunAgent()),
+    ):
+        await service.run_agent(
+            "sess-1",
+            1,
+            AgentRunRequest(input="hello", stream=False, mcp_server_ids=["mcp-1"]),
+        )
+
+    assert captured_configs
+    assert captured_configs[0] is not None
+    assert [server.mcp_server_id for server in captured_configs[0].mcp_servers] == [
+        "mcp-1"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_builtin_tools_includes_rag_retrieval():
+    service = AgentService(AsyncMock(), AsyncMock())
+
+    tools = await service.get_builtin_tools()
+
+    assert "rag_retrieval" in {tool["name"] for tool in tools}
