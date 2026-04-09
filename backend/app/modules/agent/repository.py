@@ -6,6 +6,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.agent.enums import AgentTypeMode
 from app.modules.agent.models import (
     AgentConfig,
     AgentConfigKB,
@@ -336,7 +337,7 @@ class AgentRepository:
         name: str,
         description: str | None = None,
         llm_model_id: str | None = None,
-        agent_type: str = "simple",
+        agent_type: AgentTypeMode = AgentTypeMode.SIMPLE,
         max_loop: int = 5,
         system_prompt: str | None = None,
         enabled: bool = True,
@@ -347,7 +348,7 @@ class AgentRepository:
             name=name,
             description=description,
             llm_model_id=llm_model_id,
-            agent_type=agent_type,
+            agent_type=agent_type.value,
             max_loop=max_loop,
             system_prompt=system_prompt,
             enabled=enabled,
@@ -420,7 +421,7 @@ class AgentRepository:
         name: str | None = None,
         description: str | None = None,
         llm_model_id: str | None = None,
-        agent_type: str | None = None,
+        agent_type: AgentTypeMode | None = None,
         max_loop: int | None = None,
         system_prompt: str | None = None,
         enabled: bool | None = None,
@@ -438,7 +439,7 @@ class AgentRepository:
         if llm_model_id is not None:
             updates["llm_model_id"] = llm_model_id
         if agent_type is not None:
-            updates["agent_type"] = agent_type
+            updates["agent_type"] = agent_type.value
         if max_loop is not None:
             updates["max_loop"] = max_loop
         if system_prompt is not None:

@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.modules.agent.enums import AgentTypeMode
+
 # =============================================================================
 # Session Schemas
 # =============================================================================
@@ -224,7 +226,7 @@ class AgentConfigBase(BaseModel):
     name: str = Field(..., max_length=100)
     description: str | None = None
     llm_model_id: str | None = None
-    agent_type: str = Field(default="simple")
+    agent_type: AgentTypeMode = Field(default=AgentTypeMode.SIMPLE)
     max_loop: int = Field(default=5)
     system_prompt: str | None = None
     enabled: bool = Field(default=True)
@@ -242,7 +244,7 @@ class AgentConfigUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     llm_model_id: str | None = None
-    agent_type: str | None = None
+    agent_type: AgentTypeMode | None = None
     max_loop: int | None = None
     system_prompt: str | None = None
     enabled: bool | None = None

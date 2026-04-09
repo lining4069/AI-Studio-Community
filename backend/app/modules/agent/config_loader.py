@@ -10,6 +10,7 @@ from app.modules.agent.domain import (
     MCPConfigItem,
     ToolConfigItem,
 )
+from app.modules.agent.enums import AgentTypeMode
 from app.modules.agent.models import AgentConfig, AgentConfigMCP
 
 
@@ -112,7 +113,7 @@ class AgentConfigLoader:
             id=config.id,
             user_id=config.user_id,
             name=config.name,
-            agent_type=config.agent_type or "simple",
+            agent_type=AgentTypeMode(config.agent_type or AgentTypeMode.SIMPLE.value),
             max_loop=config.max_loop or 5,
             system_prompt=config.system_prompt,
             llm_model_id=config.llm_model_id,

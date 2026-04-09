@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.modules.agent.enums import AgentTypeMode
 from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
     AgentRunRequest,
@@ -41,7 +42,7 @@ class TestConfigCRUD:
         config = await repo.create_config(
             user_id=sample_user_id,
             name="test-agent",
-            agent_type="simple",
+            agent_type=AgentTypeMode.SIMPLE,
             max_loop=5,
             system_prompt="You are a helpful assistant.",
         )
@@ -59,7 +60,7 @@ class TestConfigCRUD:
         created = await repo.create_config(
             user_id=sample_user_id,
             name="get-test-agent",
-            agent_type="react",
+            agent_type=AgentTypeMode.REACT,
             max_loop=3,
         )
 
@@ -375,7 +376,7 @@ class TestRunExecution:
         config = await repo.create_config(
             user_id=sample_user_id,
             name="calculator-agent",
-            agent_type="simple",
+            agent_type=AgentTypeMode.SIMPLE,
         )
         await repo.add_config_tool(
             config_id=config.id,

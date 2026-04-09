@@ -4,10 +4,17 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from app.common.exceptions import NotFoundException
 from app.modules.agent import router as agent_router_module
-from app.modules.agent.schema import AgentConfigToolUpdate, AgentRunRequest
+from app.modules.agent.agent_factory import create_agent
+from app.modules.agent.enums import AgentTypeMode
+from app.modules.agent.schema import (
+    AgentConfigCreate,
+    AgentConfigToolUpdate,
+    AgentRunRequest,
+)
 from app.modules.agent.service import AgentService
 from app.modules.agent.tools.base import Tool
 from app.services.agent.core import (
@@ -58,6 +65,10 @@ class _FakeRunAgent:
         state.output = "done"
         state.finished = True
         return state
+
+
+class _DummyLLM:
+    provider_name = "dummy"
 
 
 class _FakeResumeAgent:
@@ -206,6 +217,32 @@ async def test_simple_agent_run_honors_max_loop_on_repeated_tool_calls():
     result = await agent.run(state)
 
     assert len(result.steps) == 4
+
+
+def test_agent_config_create_rejects_unknown_agent_type():
+    with pytest.raises(ValidationError):
+        AgentConfigCreate(name="test-agent", agent_type="invalid")
+
+
+def test_create_agent_rejects_unknown_agent_type():
+    with pytest.raises(ValueError, match="Unsupported agent_type"):
+        create_agent(
+            agent_type="invalid",
+            tools=[],
+            llm=_DummyLLM(),
+            run_id=None,
+        )
+
+
+def test_create_agent_accepts_enum_value():
+    agent = create_agent(
+        agent_type=AgentTypeMode.SIMPLE,
+        tools=[],
+        llm=_DummyLLM(),
+        run_id=None,
+    )
+
+    assert isinstance(agent, SimpleAgent)
 
 
 @pytest.mark.asyncio

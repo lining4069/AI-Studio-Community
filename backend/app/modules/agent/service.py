@@ -13,6 +13,7 @@ from app.common.exceptions import NotFoundException
 from app.modules.agent.agent_factory import create_agent
 from app.modules.agent.config_loader import AgentConfigLoader
 from app.modules.agent.domain import DomainConfig, MCPConfigItem
+from app.modules.agent.enums import AgentTypeMode
 from app.modules.agent.models import AgentSession
 from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
@@ -245,7 +246,7 @@ class AgentService:
         tool_builder = ToolBuilder(rag_service=rag_service)
         tools, warnings = await tool_builder.build(domain_config)
 
-        agent_type = domain_config.agent_type if domain_config else "simple"
+        agent_type = domain_config.agent_type if domain_config else AgentTypeMode.SIMPLE
 
         # Build initial state
         state = AgentState(
@@ -365,7 +366,7 @@ class AgentService:
             logger.warning(f"Tool load warnings for session {session_id}: {warnings}")
 
         # Determine agent type from config or default to simple
-        agent_type = domain_config.agent_type if domain_config else "simple"
+        agent_type = domain_config.agent_type if domain_config else AgentTypeMode.SIMPLE
 
         # Build initial state
         state = AgentState(
@@ -666,7 +667,7 @@ class AgentService:
             logger.warning(f"Tool load warnings for resume run {run_id}: {warnings}")
 
         # 8. Determine agent type from config
-        agent_type = domain_config.agent_type if domain_config else "simple"
+        agent_type = domain_config.agent_type if domain_config else AgentTypeMode.SIMPLE
 
         # 9. Build initial state from successful steps + summary
         #    Skip all successful steps (they're already in history/scratchpad)
@@ -879,7 +880,7 @@ class AgentService:
         name: str,
         description: str | None = None,
         llm_model_id: str | None = None,
-        agent_type: str = "simple",
+        agent_type: AgentTypeMode = AgentTypeMode.SIMPLE,
         max_loop: int = 5,
         system_prompt: str | None = None,
         enabled: bool = True,
@@ -1005,7 +1006,7 @@ class AgentService:
         name: str | None = None,
         description: str | None = None,
         llm_model_id: str | None = None,
-        agent_type: str | None = None,
+        agent_type: AgentTypeMode | None = None,
         max_loop: int | None = None,
         system_prompt: str | None = None,
         enabled: bool | None = None,
@@ -1573,7 +1574,7 @@ class AgentService:
             id="__runtime__",
             user_id=user_id,
             name="runtime-request-config",
-            agent_type=domain_config.agent_type if domain_config else "simple",
+            agent_type=domain_config.agent_type if domain_config else AgentTypeMode.SIMPLE,
             max_loop=domain_config.max_loop if domain_config else 5,
             system_prompt=domain_config.system_prompt if domain_config else None,
             llm_model_id=domain_config.llm_model_id if domain_config else None,

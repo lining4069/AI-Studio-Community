@@ -5,6 +5,7 @@ Replaces simple if-else with a factory pattern for extensibility.
 """
 
 from app.modules.agent.domain import DomainConfig
+from app.modules.agent.enums import AgentTypeMode
 from app.modules.agent.tools.base import Tool
 from app.services.agent.react_agent import ReactAgent
 from app.services.agent.simple_agent import SimpleAgent
@@ -12,7 +13,7 @@ from app.services.providers.base import LLMProvider
 
 
 def create_agent(
-    agent_type: str,
+    agent_type: AgentTypeMode | str,
     tools: list[Tool],
     llm: LLMProvider,
     run_id: str | None,
@@ -22,7 +23,7 @@ def create_agent(
     Create an Agent instance based on agent_type.
 
     Args:
-        agent_type: Type of agent ("simple" or "react")
+        agent_type: Type of agent
         tools: List of Tool instances
         llm: LLM provider
         run_id: Run identifier for SSE event tracking
@@ -33,8 +34,12 @@ def create_agent(
     """
     max_loop = config.max_loop if config else 5
     system_prompt = config.system_prompt if config else None
+    try:
+        normalized_type = AgentTypeMode(agent_type)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported agent_type: {agent_type}") from exc
 
-    if agent_type == "react":
+    if normalized_type is AgentTypeMode.REACT:
         return ReactAgent(
             llm=llm,
             tools=tools,
@@ -43,7 +48,9 @@ def create_agent(
             run_id=run_id,
         )
 
-    # Default to simple
+    if normalized_type is not AgentTypeMode.SIMPLE:
+        raise ValueError(f"Unsupported agent_type: {agent_type}")
+
     return SimpleAgent(
         llm=llm,
         tools=tools,

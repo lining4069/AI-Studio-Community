@@ -7,6 +7,8 @@ Used for business logic layer to pass configuration data.
 
 from dataclasses import dataclass, field
 
+from app.modules.agent.enums import AgentTypeMode
+
 
 @dataclass
 class ToolConfigItem:
@@ -54,7 +56,7 @@ class DomainConfig:
     id: str
     user_id: int
     name: str
-    agent_type: str  # "simple" | "react"
+    agent_type: AgentTypeMode
     max_loop: int
     system_prompt: str | None
     llm_model_id: str | None
@@ -75,7 +77,7 @@ class DomainConfig:
             id=data["id"],
             user_id=data["user_id"],
             name=data["name"],
-            agent_type=data["agent_type"],
+            agent_type=AgentTypeMode(data["agent_type"]),
             max_loop=data["max_loop"],
             system_prompt=data.get("system_prompt"),
             llm_model_id=data.get("llm_model_id"),

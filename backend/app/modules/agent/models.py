@@ -15,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.base import Base, TimestampMixin
+from app.modules.agent.enums import AgentTypeMode
 
 
 class AgentMode(StrEnum):
@@ -325,8 +326,8 @@ class AgentConfig(Base, TimestampMixin):
 
     # Agent Behavior
     agent_type: Mapped[str] = mapped_column(
-        String(20), default="simple"
-    )  # "simple" | "react"
+        String(20), default=AgentTypeMode.SIMPLE.value
+    )
     max_loop: Mapped[int] = mapped_column(Integer, default=5)
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
 
