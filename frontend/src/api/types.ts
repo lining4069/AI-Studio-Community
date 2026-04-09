@@ -1,0 +1,38 @@
+import type { components } from "@/api/types.generated";
+
+export type ApiSchemas = components["schemas"];
+
+export type UserResponse = ApiSchemas["UserResponse"];
+export type UserAuthedResponse = ApiSchemas["UserAuthedResponse"];
+export type UserCreateRequest = ApiSchemas["UserCreateRequest"];
+export type RefreshTokenRequest = ApiSchemas["RefreshTokenRequest"];
+export type RefreshTokenResponse = ApiSchemas["RefreshTokenResponse"];
+export type KbDocumentResponse = ApiSchemas["KbDocumentResponse"];
+export type KbDocumentCreate = ApiSchemas["KbDocumentCreate"];
+export type KbFileResponse = ApiSchemas["KbFileResponse"];
+export type AgentConfigResponse = ApiSchemas["AgentConfigResponse"];
+export type AgentConfigDetailResponse = ApiSchemas["AgentConfigDetailResponse"];
+export type AgentConfigCreate = ApiSchemas["AgentConfigCreate"];
+export type AgentConfigUpdate = ApiSchemas["AgentConfigUpdate"];
+export type AgentConfigToolCreate = ApiSchemas["AgentConfigToolCreate"];
+export type AgentConfigMCPCreate = ApiSchemas["AgentConfigMCPCreate"];
+export type AgentConfigKBCreate = ApiSchemas["AgentConfigKBCreate"];
+export type AgentSessionResponse = ApiSchemas["AgentSessionResponse"];
+export type AgentSessionCreate = ApiSchemas["AgentSessionCreate"];
+export type AgentRunRequest = ApiSchemas["AgentRunRequest"];
+export type AgentRunDetailResponse = ApiSchemas["AgentRunDetailResponse"];
+export type AgentMCPServerResponse = ApiSchemas["AgentMCPServerResponse"];
+export type AgentMCPServerCreate = ApiSchemas["AgentMCPServerCreate"];
+export type AgentTypeMode = ApiSchemas["AgentTypeMode"];
+export type LlmModelResponse = ApiSchemas["LlmModelResponse"];
+export type LlmModelCreate = ApiSchemas["LlmModelCreate"];
+export type EmbeddingModelResponse = ApiSchemas["EmbeddingModelResponse"];
+export type EmbeddingModelCreate = ApiSchemas["EmbeddingModelCreate"];
+export type RerankModelResponse = ApiSchemas["RerankModelResponse"];
+export type RerankModelCreate = ApiSchemas["RerankModelCreate"];
+export type RetrievalRequest = ApiSchemas["RetrievalRequest"];
+export type RetrievalResponse = ApiSchemas["RetrievalResponse"];
+export type RAGRequest = ApiSchemas["RAGRequest"];
+export type RAGResponse = ApiSchemas["RAGResponse"];
+export type BuiltinToolsResponse = ApiSchemas["BuiltinToolsResponse"];
+export type UserUpdateRequest = ApiSchemas["UserUpdateRequest"];
