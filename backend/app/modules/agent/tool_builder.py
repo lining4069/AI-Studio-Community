@@ -6,7 +6,10 @@ ToolBuilder - builds Tool instances from DomainConfig.
 2. ToolBuilder: DomainConfig → list[Tool]
 3. Agent runtime: uses tools
 
-Error isolation: MCP server failures are collected in warnings, not thrown.
+MCP 接入（Phase 5 重构）：
+- MCP Layer (mcp/) 定义 MCPProvider 接口，与 Agent 系统无关
+- ToolBuilder 创建 MCPToolAdapter，将 MCP Provider 接入 Tool ABC
+- MCPToolAdapter 负责：接入 (Provider→Tool) + 数据转化 (Schema 映射)
 """
 
 import asyncio
@@ -18,12 +21,14 @@ from app.modules.agent.domain import (
 )
 from app.modules.agent.tools.base import Tool
 from app.modules.agent.tools.builtin_mcp_registry import registry as builtin_registry
-from app.modules.agent.mcp.tool import MCPToolConfig, MCPTool
-from app.modules.agent.mcp.session import create_session
-from app.modules.agent.mcp.exceptions import (
+from app.modules.agent.mcp import (
+    MCPProvider,
+    MCPToolDefinition,
+    create_mcp_provider,
     MCPConnectionError,
     MCPProtocolError,
     MCPValidationError,
+    MCPToolExecutionError,
 )
 
 
@@ -33,7 +38,7 @@ class ToolBuilder:
 
     Handles:
     - Built-in tools (calculator, datetime, websearch)
-    - MCP tools (via native MCP SDK)
+    - MCP tools (via MCPProvider interface → MCPToolAdapter)
     - RAG tools (knowledge base retrieval)
 
     Usage:
@@ -80,7 +85,7 @@ class ToolBuilder:
             except Exception as e:
                 warnings.append(f"builtin:{tool_cfg.tool_name} load failed: {e}")
 
-        # 2. MCP tools
+        # 2. MCP tools (via Provider interface)
         for mcp_cfg in config.mcp_servers:
             if not mcp_cfg.enabled:
                 continue
@@ -126,37 +131,23 @@ class ToolBuilder:
 
     async def _build_mcp(self, mcp_cfg: MCPConfigItem) -> list[Tool]:
         """
-        Build MCP tools from a single MCP server.
+        Build MCP tools from a single MCP server via Provider interface.
+
+        流程：
+        1. create_mcp_provider() 创建 NativeMCPProvider（MCP Layer 内部）
+        2. provider.list_tools() 发现工具列表
+        3. 为每个工具创建 MCPToolAdapter（Agent 层适配器）
 
         Args:
-            mcp_cfg: MCP server configuration
+            mcp_cfg: MCP server configuration (Agent domain)
 
         Returns:
-            List of Tool instances from the MCP server
+            List of Tool instances (MCPToolAdapter)
         """
-        async with create_session(
+        # 1. 创建 Provider（MCP Layer）
+        provider = create_mcp_provider(
             transport=mcp_cfg.transport,
-            url=mcp_cfg.url,
-            command=mcp_cfg.command,
-            args=mcp_cfg.args,
-            env=mcp_cfg.env,
-            cwd=mcp_cfg.cwd,
-            headers=mcp_cfg.headers,
-        ) as session:
-            try:
-                result = await asyncio.wait_for(
-                    session.list_tools(),
-                    timeout=30.0,
-                )
-            except asyncio.TimeoutError:
-                raise MCPConnectionError(
-                    f"MCP server {mcp_cfg.name} list_tools() timeout after 30s"
-                )
-
-        tool_config = MCPToolConfig(
-            mcp_server_id=mcp_cfg.mcp_server_id,
-            name=mcp_cfg.name,
-            transport=mcp_cfg.transport,
+            server_name=mcp_cfg.name,
             url=mcp_cfg.url,
             command=mcp_cfg.command,
             args=mcp_cfg.args,
@@ -165,16 +156,19 @@ class ToolBuilder:
             headers=mcp_cfg.headers,
         )
 
-        tools = []
-        for t in result.tools:
-            input_schema = getattr(t, 'inputSchema', None) or {"type": "object", "properties": {}}
-            tools.append(MCPTool(
-                config=tool_config,
-                tool_name=t.name,
-                description=t.description or "",
-                input_schema=input_schema,
-            ))
-        return tools
+        # 2. 发现工具列表（通过 Provider 接口）
+        tool_defs = await provider.list_tools()
+
+        # 3. 创建适配器：将 MCP Provider 接入 Tool ABC
+        adapters = []
+        for tool_def in tool_defs:
+            adapters.append(
+                MCPToolAdapter(
+                    provider=provider,
+                    tool_def=tool_def,
+                )
+            )
+        return adapters
 
     def _build_rag(self, kbs: list) -> Tool:
         """Build RAG retrieval tool."""
@@ -184,6 +178,68 @@ class ToolBuilder:
         tool = RAGRetrievalTool(kb_ids=kb_ids, top_k=5)
         tool.set_rag_service(self.rag_service)
         return tool
+
+
+# =============================================================================
+# MCP Tool Adapter (Agent 层) - 将 MCP Provider 接入 Tool ABC
+# =============================================================================
+
+
+class MCPToolAdapter(Tool):
+    """
+    MCP 工具适配器：将 MCP Provider 接入 Agent 的 Tool ABC 接口。
+
+    双重职责：
+    1. 接入：Provider.call_tool() → Tool.run()，让 Agent Runtime 能调用 MCP 工具
+    2. 转化：MCP Schema ↔ Agent Schema 数据范式（当前为直通，未来可扩展映射）
+
+    此适配器属于 Agent 层，不知道 MCP Layer 内部实现。
+    """
+
+    name: str
+    description: str
+    input_schema: dict
+
+    def __init__(
+        self,
+        provider: MCPProvider,
+        tool_def: MCPToolDefinition,
+    ):
+        self._provider = provider
+        self._tool_def = tool_def
+
+        # Tool ABC 属性
+        self.name = tool_def.name
+        self.description = tool_def.description
+        self.input_schema = tool_def.input_schema
+
+    async def run(self, input: dict) -> dict:
+        """
+        执行 MCP 工具。
+
+        调用流程：
+        Provider.call_tool() → MCP Native SDK → MCP Server
+        """
+        try:
+            result = await self._provider.call_tool(self.name, input)
+            return self._adapt_output(result)
+        except MCPToolExecutionError:
+            raise
+        except MCPConnectionError:
+            raise
+        except Exception as e:
+            raise MCPToolExecutionError(
+                f"Tool {self.name} failed: {e}"
+            ) from e
+
+    def _adapt_output(self, mcp_result: dict) -> dict:
+        """
+        数据转化：MCP 输出格式 → Agent Tool 输出格式。
+
+        当前为直通（Phase 5），不改变数据范式。
+        未来可在此扩展：结果映射、格式化、过滤等。
+        """
+        return mcp_result
 
 
 # =============================================================================
