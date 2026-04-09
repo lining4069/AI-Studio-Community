@@ -15,10 +15,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
 from mcp import ClientSession, McpError
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 from app.services.mcp.exceptions import (
     MCPConnectionError,
@@ -39,6 +40,72 @@ def _require_str_list(value: list[str] | None, field_name: str) -> list[str]:
     if value is None:
         raise MCPValidationError(f"{field_name} is required")
     return value
+
+
+def _iter_leaf_exceptions(exc: BaseException) -> list[BaseException]:
+    """Flatten nested exception groups into leaf exceptions."""
+    if isinstance(exc, BaseExceptionGroup):
+        leaves: list[BaseException] = []
+        for child in exc.exceptions:
+            leaves.extend(_iter_leaf_exceptions(child))
+        return leaves
+    return [exc]
+
+
+def _is_cleanup_noise(exc: BaseException) -> bool:
+    """Ignore teardown noise when a more useful root cause is available."""
+    return isinstance(exc, (BrokenPipeError, ConnectionResetError))
+
+
+def _pick_root_exception(exc: BaseException) -> BaseException:
+    """Choose the most actionable exception from a nested failure."""
+    leaves = _iter_leaf_exceptions(exc)
+    meaningful = [leaf for leaf in leaves if not _is_cleanup_noise(leaf)]
+    return meaningful[0] if meaningful else leaves[0]
+
+
+def _describe_exception(exc: BaseException) -> str:
+    """Convert transport/library exceptions into user-facing diagnostics."""
+    root = _pick_root_exception(exc)
+
+    if isinstance(root, httpx.HTTPStatusError):
+        response = root.response
+        request = root.request
+        return (
+            f"HTTP {response.status_code} {response.reason_phrase} "
+            f"while connecting to {request.url}"
+        )
+
+    if isinstance(root, httpx.TimeoutException):
+        return "Connection timeout"
+
+    if isinstance(root, httpx.RequestError):
+        request = root.request
+        if request is not None:
+            return f"Connection error for {request.url}: {root}"
+        return f"Connection error: {root}"
+
+    return str(root)
+
+
+def _raise_mcp_error(exc: BaseException) -> None:
+    """Map SDK/runtime exceptions into MCP-specific exceptions."""
+    if isinstance(exc, TimeoutError):
+        raise MCPConnectionError("Connection timeout") from exc
+
+    if isinstance(exc, OSError):
+        raise MCPConnectionError(f"Connection error: {exc}") from exc
+
+    if isinstance(exc, McpError):
+        error_msg = _describe_exception(exc)
+        if "protocol" in error_msg.lower() or "handshake" in error_msg.lower():
+            raise MCPProtocolError(error_msg) from exc
+        raise MCPConnectionError(error_msg) from exc
+
+    error_msg = _describe_exception(exc)
+    if "protocol" in error_msg.lower() or "handshake" in error_msg.lower():
+        raise MCPProtocolError(error_msg) from exc
+    raise MCPConnectionError(error_msg) from exc
 
 
 @asynccontextmanager
@@ -114,24 +181,18 @@ async def create_session(
 
         elif transport == "streamable_http":
             url_value = _require_str(url, "url")
-            async with streamablehttp_client(url_value, headers=headers) as (
-                read,
-                write,
-                _,
-            ):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    yield session
+            async with httpx.AsyncClient(
+                headers=headers or {},
+                timeout=httpx.Timeout(timeout),
+            ) as http_client:
+                async with streamable_http_client(
+                    url_value,
+                    http_client=http_client,
+                    terminate_on_close=True,
+                ) as (read, write, _):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        yield session
 
-    except McpError as e:
-        # MCP SDK 异常映射到自定义异常体系
-        error_msg = str(e)
-        if "timeout" in error_msg.lower() or "connection" in error_msg.lower():
-            raise MCPConnectionError(error_msg) from e
-        elif "protocol" in error_msg.lower() or "handshake" in error_msg.lower():
-            raise MCPProtocolError(error_msg) from e
-        else:
-            raise MCPConnectionError(error_msg) from e
-
-    except Exception:
-        raise
+    except Exception as e:
+        _raise_mcp_error(e)

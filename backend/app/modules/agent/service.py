@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
+import httpx
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
@@ -1291,6 +1292,48 @@ class AgentService:
         """Delete MCP server."""
         return await self.repo.delete_mcp_server(server_id, user_id)
 
+    async def _diagnose_streamable_http_failure(self, server: Any) -> str | None:
+        """Probe streamable_http endpoint when SDK error is too generic."""
+        url = getattr(server, "url", None)
+        if not url:
+            return None
+
+        probe_headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        if isinstance(server.headers, dict):
+            for key, value in server.headers.items():
+                if value is not None:
+                    probe_headers[str(key)] = str(value)
+
+        try:
+            async with httpx.AsyncClient(
+                headers=probe_headers,
+                timeout=httpx.Timeout(10.0),
+                follow_redirects=True,
+            ) as client:
+                response = await client.post(url, json={})
+        except httpx.TimeoutException:
+            return f"Connection timeout while probing {url}"
+        except httpx.RequestError as exc:
+            request = exc.request
+            if request is not None:
+                return f"Connection error for {request.url}: {exc}"
+            return f"Connection error while probing {url}: {exc}"
+
+        status = response.status_code
+        reason = response.reason_phrase
+        if status == 404:
+            return f"HTTP 404 {reason} while connecting to {url}. The MCP endpoint may be incorrect."
+        if status in (401, 403):
+            return f"HTTP {status} {reason} while connecting to {url}. Authentication failed."
+        if status >= 400:
+            body = response.text.strip()
+            detail = f" Response: {body[:200]}" if body else ""
+            return f"HTTP {status} {reason} while connecting to {url}.{detail}"
+        return None
+
     async def test_mcp_server(self, server_id: str, user_id: int) -> dict:
         """Test MCP server connection."""
         server = await self.repo.get_mcp_server(server_id, user_id)
@@ -1327,9 +1370,17 @@ class AgentService:
                 "tools_count": 0,
             }
         except MCPError as e:
+            message = str(e)
+            if (
+                server.transport == "streamable_http"
+                and "Session terminated" in message
+            ):
+                diagnostic = await self._diagnose_streamable_http_failure(server)
+                if diagnostic:
+                    message = diagnostic
             return {
                 "success": False,
-                "message": f"Connection failed: {str(e)}",
+                "message": f"Connection failed: {message}",
                 "tools_count": 0,
             }
         except Exception as e:

@@ -1,6 +1,8 @@
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from app.common.exceptions import NotFoundException
@@ -16,6 +18,8 @@ from app.services.agent.core import (
     StepType,
 )
 from app.services.agent.simple_agent import SimpleAgent
+from app.services.mcp.exceptions import MCPConnectionError
+from app.services.mcp.session import create_session
 
 
 class _AlwaysToolLLM:
@@ -261,3 +265,128 @@ async def test_get_builtin_tools_includes_rag_retrieval():
     tools = await service.get_builtin_tools()
 
     assert "rag_retrieval" in {tool["name"] for tool in tools}
+
+
+@pytest.mark.asyncio
+async def test_create_session_unwraps_streamable_http_exception_group():
+    request = httpx.Request("POST", "https://example.com/mcp")
+    response = httpx.Response(
+        401,
+        request=request,
+        text='{"error":"unauthorized"}',
+    )
+
+    @asynccontextmanager
+    async def _fake_streamable_http_client(*_args, **_kwargs):
+        raise ExceptionGroup(
+            "unhandled errors in a TaskGroup",
+            [
+                httpx.HTTPStatusError(
+                    "Client error '401 Unauthorized' for url 'https://example.com/mcp'",
+                    request=request,
+                    response=response,
+                )
+            ],
+        )
+        yield
+
+    with patch(
+        "app.services.mcp.session.streamable_http_client",
+        _fake_streamable_http_client,
+    ):
+        with pytest.raises(MCPConnectionError, match="401 Unauthorized"):
+            async with create_session(
+                transport="streamable_http",
+                url="https://example.com/mcp",
+            ):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_test_mcp_server_surfaces_unwrapped_connection_error():
+    repo = AsyncMock()
+    repo.get_mcp_server.return_value = SimpleNamespace(
+        id="mcp-1",
+        user_id=1,
+        name="tavily-mcp",
+        transport="streamable_http",
+        url="https://example.com/mcp",
+        headers={"Authorization": "Bearer token"},
+        command=None,
+        args=None,
+        env=None,
+        cwd=None,
+        enabled=True,
+    )
+    service = AgentService(repo, AsyncMock())
+
+    @asynccontextmanager
+    async def _failing_session(*_args, **_kwargs):
+        raise MCPConnectionError("HTTP 401 Unauthorized: unauthorized")
+        yield
+
+    with patch("app.services.mcp.session.create_session", _failing_session):
+        result = await service.test_mcp_server("mcp-1", 1)
+
+    assert result == {
+        "success": False,
+        "message": "Connection failed: HTTP 401 Unauthorized: unauthorized",
+        "tools_count": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_test_mcp_server_diagnoses_session_terminated_for_streamable_http():
+    repo = AsyncMock()
+    repo.get_mcp_server.return_value = SimpleNamespace(
+        id="mcp-2",
+        user_id=1,
+        name="tavily-mcp",
+        transport="streamable_http",
+        url="https://api.tavily.com/mcp",
+        headers={"Authorization": "Bearer token"},
+        command=None,
+        args=None,
+        env=None,
+        cwd=None,
+        enabled=True,
+    )
+    service = AgentService(repo, AsyncMock())
+
+    @asynccontextmanager
+    async def _terminated_session(*_args, **_kwargs):
+        raise MCPConnectionError("Session terminated")
+        yield
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            self.headers = kwargs.get("headers")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, json):
+            request = httpx.Request("POST", url, headers=self.headers)
+            return httpx.Response(
+                404,
+                request=request,
+                text='{"detail":"Not Found"}',
+            )
+
+    with (
+        patch("app.services.mcp.session.create_session", _terminated_session),
+        patch("app.modules.agent.service.httpx.AsyncClient", _FakeAsyncClient),
+    ):
+        result = await service.test_mcp_server("mcp-2", 1)
+
+    assert result == {
+        "success": False,
+        "message": (
+            "Connection failed: HTTP 404 Not Found while connecting to "
+            "https://api.tavily.com/mcp. The MCP endpoint may be incorrect."
+        ),
+        "tools_count": 0,
+    }
