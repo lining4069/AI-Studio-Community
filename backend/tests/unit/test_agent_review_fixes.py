@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -14,6 +15,7 @@ from app.modules.agent.schema import (
     AgentConfigCreate,
     AgentConfigToolUpdate,
     AgentRunRequest,
+    AgentSessionCreate,
 )
 from app.modules.agent.service import AgentService
 from app.modules.agent.tools.base import Tool
@@ -243,6 +245,82 @@ def test_create_agent_accepts_enum_value():
     )
 
     assert isinstance(agent, SimpleAgent)
+
+
+def test_agent_session_create_requires_config_id():
+    with pytest.raises(ValidationError):
+        AgentSessionCreate()
+
+
+@pytest.mark.asyncio
+async def test_create_session_defaults_title_and_binds_config():
+    repo = AsyncMock()
+    repo.get_config.return_value = SimpleNamespace(
+        id="cfg-1",
+        user_id=1,
+        name="cfg",
+        description=None,
+        llm_model_id=None,
+        agent_type=AgentTypeMode.SIMPLE,
+        max_loop=5,
+        system_prompt=None,
+        enabled=True,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    repo.create_session.return_value = SimpleNamespace(
+        id="sess-1",
+        user_id=1,
+        config_id="cfg-1",
+        title="默认会话",
+        summary=None,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    service = AgentService(repo, AsyncMock())
+
+    response = await service.create_session(
+        1,
+        AgentSessionCreate(config_id="cfg-1"),
+    )
+
+    repo.create_session.assert_awaited_once_with(
+        user_id=1,
+        config_id="cfg-1",
+        title="默认会话",
+    )
+    assert response.config_id == "cfg-1"
+    assert response.title == "默认会话"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_updates_default_session_title_from_first_message():
+    repo = AsyncMock()
+    repo.get_session.return_value = SimpleNamespace(
+        id="sess-1",
+        user_id=1,
+        config_id=None,
+        title="默认会话",
+        summary=None,
+    )
+    repo.get_messages.return_value = []
+    service = AgentService(repo, AsyncMock())
+    service._get_llm_for_session = AsyncMock(return_value=SimpleNamespace())
+    service._generate_summary = AsyncMock(return_value=None)
+
+    with (
+        patch("app.modules.agent.service.ToolBuilder.build", new=AsyncMock(return_value=([], []))),
+        patch("app.modules.agent.service.create_agent", return_value=_FakeRunAgent()),
+    ):
+        await service.run_agent(
+            "sess-1",
+            1,
+            AgentRunRequest(input="请帮我调研 MCP 架构设计", stream=False),
+        )
+
+    repo.update_session_title.assert_awaited_once()
+    assert repo.update_session_title.await_args.args[0] == "sess-1"
+    assert repo.update_session_title.await_args.args[1].startswith("请帮我调研 MCP 架构设计")
 
 
 @pytest.mark.asyncio

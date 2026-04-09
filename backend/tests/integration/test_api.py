@@ -68,8 +68,8 @@ class TestSessionAPI:
             json={},
         )
 
-        # Should return 200/201 or auth error
-        assert response.status_code in [200, 201, 401, 403]
+        # Missing config_id should now fail validation when auth succeeds
+        assert response.status_code in [401, 403, 422]
 
     @pytest.mark.asyncio
     async def test_get_session_requires_auth(self, client):

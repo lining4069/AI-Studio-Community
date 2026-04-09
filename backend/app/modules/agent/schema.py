@@ -11,27 +11,22 @@ from app.modules.agent.enums import AgentTypeMode
 # =============================================================================
 
 
-class AgentSessionBase(BaseModel):
-    """Base schema for Agent Session"""
+class AgentSessionCreate(BaseModel):
+    """Schema for creating an agent session bound to a config."""
 
+    config_id: str = Field(..., description="AgentConfig ID to bind at creation time")
     title: str | None = Field(None, max_length=255)
-    mode: str = Field(default="assistant")
-    kb_ids: list[str] = Field(default_factory=list)
 
 
-class AgentSessionCreate(AgentSessionBase):
-    """Schema for creating Agent Session"""
-
-    pass
-
-
-class AgentSessionResponse(AgentSessionBase):
+class AgentSessionResponse(BaseModel):
     """Schema for Agent Session response"""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     user_id: int
+    config_id: str | None = None
+    title: str | None = None
     summary: str | None = None
     created_at: datetime
     updated_at: datetime

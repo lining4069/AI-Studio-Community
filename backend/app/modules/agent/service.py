@@ -37,6 +37,8 @@ class AgentService:
     ToolBuilder for tool construction, and snapshot for run reproducibility.
     """
 
+    DEFAULT_SESSION_TITLE = "默认会话"
+
     def __init__(
         self,
         repo: AgentRepository,
@@ -69,10 +71,14 @@ class AgentService:
         self, user_id: int, data: AgentSessionCreate
     ) -> AgentSessionResponse:
         """Create a new agent session."""
+        config = await self.get_config(data.config_id, user_id)
+        if not config:
+            raise NotFoundException("AgentConfig", data.config_id)
+
         session = await self.repo.create_session(
             user_id=user_id,
-            title=data.title,
-            mode=data.mode,
+            config_id=data.config_id,
+            title=self._normalize_session_title(data.title),
         )
         return AgentSessionResponse.model_validate(session)
 
@@ -272,6 +278,11 @@ class AgentService:
             role="user",
             content=request.input,
         )
+        await self._maybe_update_session_title(
+            session=session,
+            prior_messages=db_messages,
+            user_input=request.input,
+        )
 
         # Persist assistant response
         if result_state.output:
@@ -407,6 +418,11 @@ class AgentService:
                 run_id=run.id,
                 role="user",
                 content=request.input,
+            )
+            await self._maybe_update_session_title(
+                session=session,
+                prior_messages=db_messages,
+                user_input=request.input,
             )
 
             # Stream events - now yields (Step, AgentEvent) tuples
@@ -1451,6 +1467,43 @@ class AgentService:
             if not config:
                 raise NotFoundException("AgentConfig", config_id)
         await self.repo.update_session_config(session_id, config_id)
+
+    @classmethod
+    def _normalize_session_title(cls, title: str | None) -> str:
+        """Apply a default title for new or empty sessions."""
+        if title and title.strip():
+            return title.strip()
+        return cls.DEFAULT_SESSION_TITLE
+
+    @classmethod
+    def _derive_session_title(cls, user_input: str, max_length: int = 30) -> str:
+        """Generate a concise session title from the first user message."""
+        condensed = " ".join(user_input.split())
+        if not condensed:
+            return cls.DEFAULT_SESSION_TITLE
+        if len(condensed) <= max_length:
+            return condensed
+        return condensed[:max_length].rstrip() + "..."
+
+    async def _maybe_update_session_title(
+        self,
+        session: AgentSession,
+        prior_messages: list,
+        user_input: str,
+    ) -> None:
+        """Replace the default title with a derived title on the first message."""
+        if prior_messages:
+            return
+        current_title = getattr(session, "title", None)
+        if current_title not in (None, "", self.DEFAULT_SESSION_TITLE):
+            return
+
+        derived_title = self._derive_session_title(user_input)
+        if derived_title == self.DEFAULT_SESSION_TITLE:
+            return
+
+        await self.repo.update_session_title(session.id, derived_title)
+        session.title = derived_title
 
     # =========================================================================
     # Builtin Tools (Phase 4)

@@ -34,14 +34,14 @@ class AgentRepository:
     async def create_session(
         self,
         user_id: int,
+        config_id: str,
         title: str | None = None,
-        mode: str = "assistant",
     ) -> AgentSession:
         """Create a new agent session."""
         session = AgentSession(
             user_id=user_id,
+            config_id=config_id,
             title=title,
-            mode=mode,
         )
         self.db.add(session)
         await self.db.flush()
@@ -62,6 +62,16 @@ class AgentRepository:
             update(AgentSession)
             .where(AgentSession.id == session_id)
             .values(summary=summary, updated_at=now_utc())
+        )
+        await self.db.execute(stmt)
+        await self.db.flush()
+
+    async def update_session_title(self, session_id: str, title: str) -> None:
+        """Update session title."""
+        stmt = (
+            update(AgentSession)
+            .where(AgentSession.id == session_id)
+            .values(title=title, updated_at=now_utc())
         )
         await self.db.execute(stmt)
         await self.db.flush()
