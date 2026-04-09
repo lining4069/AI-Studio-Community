@@ -106,3 +106,16 @@ def test_run_smoke_test_binds_config_via_patch_after_session_creation(tmp_path: 
     assert http.calls[9][0] == "PATCH"
     assert http.calls[9][1].endswith("/v1/agent/sessions/sess-1/config")
     assert http.calls[9][2] == {"config_id": "cfg-1"}
+
+
+def test_mock_stdio_server_fixture_exposes_echo_and_add_tools():
+    server_path = Path("tests/fixtures/mcp/mock_stdio_server.py")
+
+    assert server_path.exists()
+
+    content = server_path.read_text()
+    assert "from mcp.server.fastmcp import FastMCP" in content
+    assert 'mcp = FastMCP("mock-stdio-mcp")' in content
+    assert "def echo(text: str) -> str:" in content
+    assert "def add(a: int, b: int) -> int:" in content
+    assert 'mcp.run(transport="stdio")' in content
