@@ -273,7 +273,7 @@ class AgentMCPServer(Base, TimestampMixin):
         String(64), primary_key=True, default=lambda: uuid.uuid4().hex
     )
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False, index=True
+        Integer, ForeignKey("user.id"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     transport: Mapped[str] = mapped_column(String(20), default="streamable_http")
@@ -315,7 +315,7 @@ class AgentConfig(Base, TimestampMixin):
         String(64), primary_key=True, default=lambda: uuid.uuid4().hex
     )
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False, index=True
+        Integer, ForeignKey("user.id"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
