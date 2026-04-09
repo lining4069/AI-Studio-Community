@@ -333,12 +333,12 @@ import random
 from collections import deque
 from typing import Deque
 
-from app.modules.agent.mcp.tool import MCPToolConfig
-from app.modules.agent.mcp.session import create_session
-from app.modules.agent.mcp.pool.exceptions import MCPConnectionError
-from app.modules.agent.mcp.pool.pooled_session import PooledSession
-from app.modules.agent.mcp.pool.managed_session import ManagedSession
-from app.modules.agent.mcp.pool.metrics import PoolMetrics
+from app.services.mcp.tool import MCPToolConfig
+from app.services.mcp.session import create_session
+from app.services.mcp.pool.exceptions import MCPConnectionError
+from app.services.mcp.pool.pooled_session import PooledSession
+from app.services.mcp.pool.managed_session import ManagedSession
+from app.services.mcp.pool.metrics import PoolMetrics
 
 
 # ← 修复 2：健康检查采样概率
@@ -618,8 +618,8 @@ class ServerPool:
 from typing import Dict
 import asyncio
 
-from app.modules.agent.mcp.tool import MCPToolConfig
-from app.modules.agent.mcp.pool.server_pool import ServerPool
+from app.services.mcp.tool import MCPToolConfig
+from app.services.mcp.pool.server_pool import ServerPool
 
 
 class MCPConnectionPool:
@@ -698,8 +698,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.modules.agent.tools.base import Tool
-from app.modules.agent.mcp.pool.connection_pool import connection_pool
-from app.modules.agent.mcp.pool.exceptions import (
+from app.services.mcp.pool.connection_pool import connection_pool
+from app.services.mcp.pool.exceptions import (
     MCPConnectionError, MCPToolExecutionError,
 )
 
@@ -816,9 +816,9 @@ class MCPTool(Tool):
 
 from app.modules.agent.domain import DomainConfig, MCPConfigItem, ToolConfigItem
 from app.modules.agent.tools.base import Tool
-from app.modules.agent.mcp.pool.tool_schema_cache import tool_schema_cache
-from app.modules.agent.mcp.pool.connection_pool import connection_pool
-from app.modules.agent.mcp.pool.tool import MCPToolConfig, MCPTool
+from app.services.mcp.pool.tool_schema_cache import tool_schema_cache
+from app.services.mcp.pool.connection_pool import connection_pool
+from app.services.mcp.pool.tool import MCPToolConfig, MCPTool
 
 
 class ToolBuilder:
@@ -904,7 +904,7 @@ class ToolBuilder:
 
     async def _fetch_schema(self, mcp_cfg: MCPConfigItem) -> Any:
         """从 MCP server 获取 schema。"""
-        from app.modules.agent.mcp.session import create_session
+        from app.services.mcp.session import create_session
 
         async with create_session(
             transport=mcp_cfg.transport,

@@ -39,7 +39,7 @@
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     MCP Infrastructure Layer                     │
-│                   app/modules/agent/mcp/                         │
+│                    app/services/mcp/                              │
 │                                                                  │
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │              MCPProvider (ABC 接口)                       │    │
@@ -116,9 +116,28 @@ AgentRuntime: for tool in tools: tool.run(input)
 ## 2. 文件结构
 
 ```
-app/modules/agent/
+app/
+├── services/
+│   └── mcp/                                # MCP Infrastructure Layer（独立基础设施）
+│       ├── __init__.py                    # 导出：MCPProvider, create_mcp_provider,
+│       │                                   #            MCPToolConfig, 异常类
+│       ├── provider.py                     # ABC 接口定义
+│       │                                   #   ├── MCPProvider (ABC)
+│       │                                   #   └── MCPToolDefinition (dataclass)
+│       ├── native_provider.py             # 原生 SDK 实现
+│       │                                   #   ├── NativeMCPProvider (implements MCPProvider)
+│       │                                   #   └── create_mcp_provider() 工厂函数
+│       ├── session.py                     # MCP 连接管理（三协议）
+│       │                                   #   create_session() — 上下文管理器
+│       ├── tool.py                         # 配置数据类
+│       │                                   #   MCPToolConfig (dataclass)
+│       └── exceptions.py                  # 异常体系
+│                                           #   MCPError / MCPConnectionError /
+│                                           #   MCPProtocolError / MCPToolExecutionError /
+│                                           #   MCPValidationError
 │
-├── mcp/                                    # MCP Infrastructure Layer（独立基础设施）
+app/modules/agent/
+├── tools/                                 # Agent Tool Layer（内置工具）
 │   ├── __init__.py                        # 导出：MCPProvider, create_mcp_provider,
 │   │                                       #            MCPToolConfig, 异常类
 │   ├── provider.py                         # ABC 接口定义
@@ -539,7 +558,7 @@ Agent Runtime: tool.run(input)
 **A**: 我们采用了**适配器模式**，将 MCP 基础设施层与 Agent 系统完全解耦。
 
 整个系统分为三层：
-- **MCP Infrastructure Layer**（`app/modules/agent/mcp/`）：纯基础设施，定义 `MCPProvider` 接口，不引用任何 Agent 特有类（MCP SDK 的封装）
+- **MCP Infrastructure Layer**（`app/services/mcp/`）：纯基础设施，定义 `MCPProvider` 接口，不引用任何 Agent 特有类（MCP SDK 的封装）
 - **Agent Tool Layer**（`tool_builder.py`）：负责将 MCP Provider 适配到 `Tool ABC`，也负责内置工具的注册和构建
 - **Agent Runtime**（`SimpleAgent` / `ReactAgent`）：只认识 `Tool` 接口，不知道任何 MCP 细节
 
@@ -647,7 +666,7 @@ class FasterMCPProvider(MCPProvider):
 Agent 层代码（`tool_builder.py`）只需要：
 
 ```python
-from app.modules.agent.mcp import MCPProvider
+from app.services.mcp import MCPProvider
 
 # 替换这一行：
 # provider = create_mcp_provider(config)

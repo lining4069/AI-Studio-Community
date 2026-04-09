@@ -126,7 +126,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.modules.agent.tools.base import Tool
-from app.modules.agent.mcp.session import create_session, MCPConnectionError
+from app.services.mcp.session import create_session, MCPConnectionError
 
 
 @dataclass
@@ -188,14 +188,14 @@ class MCPTool(Tool):
 
         except asyncio.TimeoutError:
             # 超时转换为工具执行错误
-            from app.modules.agent.mcp.exceptions import MCPToolExecutionError
+            from app.services.mcp.exceptions import MCPToolExecutionError
             raise MCPToolExecutionError(
                 f"Tool {self._tool_name} timeout after {self._call_timeout}s"
             )
         except MCPConnectionError:
             raise  # 保持原始类型，让 Agent 层区分处理
         except Exception as e:
-            from app.modules.agent.mcp.exceptions import MCPToolExecutionError
+            from app.services.mcp.exceptions import MCPToolExecutionError
             raise MCPToolExecutionError(f"Tool {self._tool_name} failed: {e}") from e
 
     def _parse_result(self, result) -> dict:
@@ -372,9 +372,9 @@ from app.modules.agent.tools import builtin_mcp_specs  # noqa: F401 - 触发注�
 from app.modules.agent.domain import DomainConfig, MCPConfigItem, ToolConfigItem
 from app.modules.agent.tools.base import Tool
 from app.modules.agent.tools.builtin_mcp_registry import registry as builtin_registry
-from app.modules.agent.mcp.tool import MCPToolConfig, MCPTool
-from app.modules.agent.mcp.session import create_session
-from app.modules.agent.mcp.exceptions import (
+from app.services.mcp.tool import MCPToolConfig, MCPTool
+from app.services.mcp.session import create_session
+from app.services.mcp.exceptions import (
     MCPConnectionError, MCPProtocolError, MCPValidationError,
 )
 

@@ -134,9 +134,9 @@ import time
 from collections import deque
 from typing import Deque
 
-from app.modules.agent.mcp.tool import MCPToolConfig
-from app.modules.agent.mcp.session import create_session
-from app.modules.agent.mcp.exceptions import MCPConnectionError
+from app.services.mcp.tool import MCPToolConfig
+from app.services.mcp.session import create_session
+from app.services.mcp.exceptions import MCPConnectionError
 from .pooled_session import PooledSession
 from .managed_session import ManagedSession
 
@@ -293,8 +293,8 @@ class ServerPool:
 from typing import Dict
 import asyncio
 
-from app.modules.agent.mcp.tool import MCPToolConfig
-from app.modules.agent.mcp.pool.server_pool import ServerPool
+from app.services.mcp.tool import MCPToolConfig
+from app.services.mcp.pool.server_pool import ServerPool
 
 
 class MCPConnectionPool:
@@ -372,8 +372,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.modules.agent.tools.base import Tool
-from app.modules.agent.mcp.pool.connection_pool import connection_pool
-from app.modules.agent.mcp.pool.exceptions import (
+from app.services.mcp.pool.connection_pool import connection_pool
+from app.services.mcp.pool.exceptions import (
     MCPConnectionError, MCPToolExecutionError,
 )
 

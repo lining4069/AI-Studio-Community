@@ -20,7 +20,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client import StdioServerParameters
 
-from app.modules.agent.mcp.exceptions import (
+from app.services.mcp.exceptions import (
     MCPConnectionError,
     MCPProtocolError,
     MCPValidationError,

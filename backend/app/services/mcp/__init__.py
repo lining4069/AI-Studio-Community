@@ -10,10 +10,10 @@ MCP Module - 独立的基础设施层。
 - 异常类
 """
 
-from app.modules.agent.mcp.provider import MCPProvider, MCPToolDefinition
-from app.modules.agent.mcp.native_provider import create_mcp_provider
-from app.modules.agent.mcp.tool import MCPToolConfig
-from app.modules.agent.mcp.exceptions import (
+from app.services.mcp.provider import MCPProvider, MCPToolDefinition
+from app.services.mcp.native_provider import create_mcp_provider
+from app.services.mcp.tool import MCPToolConfig
+from app.services.mcp.exceptions import (
     MCPError,
     MCPConnectionError,
     MCPProtocolError,

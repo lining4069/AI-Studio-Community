@@ -21,7 +21,7 @@ from app.modules.agent.domain import (
 )
 from app.modules.agent.tools.base import Tool
 from app.modules.agent.tools.builtin_mcp_registry import registry as builtin_registry
-from app.modules.agent.mcp import (
+from app.services.mcp import (
     MCPProvider,
     MCPToolDefinition,
     create_mcp_provider,

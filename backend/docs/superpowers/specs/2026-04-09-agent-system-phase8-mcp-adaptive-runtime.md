@@ -588,12 +588,12 @@ class EWMABalancer:
 import asyncio
 import time
 
-from app.modules.agent.mcp.resilience.executor import ResilientExecutor
-from app.modules.agent.mcp.resilience.exceptions import MCPOverloadedError
-from app.modules.agent.mcp.adaptive.concurrency_adjuster import ConcurrencyAdjuster
-from app.modules.agent.mcp.adaptive.health_monitor import HealthMonitor
-from app.modules.agent.mcp.adaptive.hedging_executor import HedgingExecutor
-from app.modules.agent.mcp.adaptive.ewma_balancer import EWMABalancer
+from app.services.mcp.resilience.executor import ResilientExecutor
+from app.services.mcp.resilience.exceptions import MCPOverloadedError
+from app.services.mcp.adaptive.concurrency_adjuster import ConcurrencyAdjuster
+from app.services.mcp.adaptive.health_monitor import HealthMonitor
+from app.services.mcp.adaptive.hedging_executor import HedgingExecutor
+from app.services.mcp.adaptive.ewma_balancer import EWMABalancer
 
 
 class AdaptiveExecutor:

@@ -167,7 +167,7 @@ import time
 import random
 import asyncio
 
-from app.modules.agent.mcp.exceptions import (
+from app.services.mcp.exceptions import (
     MCPConnectionError,
     MCPProtocolError,
 )
@@ -606,11 +606,11 @@ class PhaseBudget:
 import asyncio
 import time
 
-from app.modules.agent.mcp.resilience.circuit_breaker import CircuitBreaker
-from app.modules.agent.mcp.resilience.retry_policy import RetryPolicy
-from app.modules.agent.mcp.resilience.phase_budget import PhaseBudget
-from app.modules.agent.mcp.resilience.priority_shedding import PriorityLoadShedding, RequestPriority
-from app.modules.agent.mcp.resilience.exceptions import (
+from app.services.mcp.resilience.circuit_breaker import CircuitBreaker
+from app.services.mcp.resilience.retry_policy import RetryPolicy
+from app.services.mcp.resilience.phase_budget import PhaseBudget
+from app.services.mcp.resilience.priority_shedding import PriorityLoadShedding, RequestPriority
+from app.services.mcp.resilience.exceptions import (
     MCPOverloadedError,
     MCPBudgetExceededError,
 )

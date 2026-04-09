@@ -1241,8 +1241,8 @@ class AgentService:
             return {"success": False, "message": "Server not found", "tools_count": 0}
 
         try:
-            from app.modules.agent.mcp.session import create_session
-            from app.modules.agent.mcp.exceptions import MCPError
+            from app.services.mcp.session import create_session
+            from app.services.mcp.exceptions import MCPError
 
             async with create_session(
                 transport=server.transport,

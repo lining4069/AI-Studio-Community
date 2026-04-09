@@ -13,9 +13,9 @@ from typing import Any
 
 from mcp import ClientSession
 
-from app.modules.agent.mcp.provider import MCPProvider, MCPToolDefinition
-from app.modules.agent.mcp.session import create_session
-from app.modules.agent.mcp.exceptions import (
+from app.services.mcp.provider import MCPProvider, MCPToolDefinition
+from app.services.mcp.session import create_session
+from app.services.mcp.exceptions import (
     MCPConnectionError,
     MCPProtocolError,
     MCPToolExecutionError,
