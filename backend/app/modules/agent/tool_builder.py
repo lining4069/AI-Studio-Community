@@ -9,6 +9,8 @@ ToolBuilder - builds Tool instances from DomainConfig.
 Error isolation: MCP server failures are collected in warnings, not thrown.
 """
 
+import asyncio
+
 from app.modules.agent.domain import (
     DomainConfig,
     MCPConfigItem,
@@ -141,7 +143,15 @@ class ToolBuilder:
             cwd=mcp_cfg.cwd,
             headers=mcp_cfg.headers,
         ) as session:
-            result = await session.list_tools()
+            try:
+                result = await asyncio.wait_for(
+                    session.list_tools(),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                raise MCPConnectionError(
+                    f"MCP server {mcp_cfg.name} list_tools() timeout after 30s"
+                )
 
         tool_config = MCPToolConfig(
             mcp_server_id=mcp_cfg.mcp_server_id,

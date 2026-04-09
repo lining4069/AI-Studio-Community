@@ -1,5 +1,6 @@
 """Agent service - business logic and orchestration."""
 
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -1100,27 +1101,39 @@ class AgentService:
         self,
         user_id: int,
         name: str,
-        url: str,
-        headers: dict | None = None,
         transport: str = "streamable_http",
+        url: str | None = None,
+        headers: dict | None = None,
+        command: str | None = None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
         enabled: bool = True,
     ) -> dict:
         """Create a new MCP server."""
         server = await self.repo.create_mcp_server(
             user_id=user_id,
             name=name,
+            transport=transport,
             url=url,
             headers=headers,
-            transport=transport,
+            command=command,
+            args=args,
+            env=env,
+            cwd=cwd,
             enabled=enabled,
         )
         return {
             "id": server.id,
             "user_id": server.user_id,
             "name": server.name,
+            "transport": server.transport,
             "url": server.url,
             "headers": server.headers,
-            "transport": server.transport,
+            "command": server.command,
+            "args": server.args,
+            "env": server.env,
+            "cwd": server.cwd,
             "enabled": server.enabled,
             "created_at": server.created_at.isoformat(),
             "updated_at": server.updated_at.isoformat(),
@@ -1135,9 +1148,13 @@ class AgentService:
             "id": server.id,
             "user_id": server.user_id,
             "name": server.name,
+            "transport": server.transport,
             "url": server.url,
             "headers": server.headers,
-            "transport": server.transport,
+            "command": server.command,
+            "args": server.args,
+            "env": server.env,
+            "cwd": server.cwd,
             "enabled": server.enabled,
             "created_at": server.created_at.isoformat(),
             "updated_at": server.updated_at.isoformat(),
@@ -1153,9 +1170,13 @@ class AgentService:
                 "id": s.id,
                 "user_id": s.user_id,
                 "name": s.name,
+                "transport": s.transport,
                 "url": s.url,
                 "headers": s.headers,
-                "transport": s.transport,
+                "command": s.command,
+                "args": s.args,
+                "env": s.env,
+                "cwd": s.cwd,
                 "enabled": s.enabled,
                 "created_at": s.created_at.isoformat(),
                 "updated_at": s.updated_at.isoformat(),
@@ -1168,9 +1189,13 @@ class AgentService:
         server_id: str,
         user_id: int,
         name: str | None = None,
+        transport: str | None = None,
         url: str | None = None,
         headers: dict | None = None,
-        transport: str | None = None,
+        command: str | None = None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
         enabled: bool | None = None,
     ) -> dict | None:
         """Update MCP server."""
@@ -1178,9 +1203,13 @@ class AgentService:
             server_id=server_id,
             user_id=user_id,
             name=name,
+            transport=transport,
             url=url,
             headers=headers,
-            transport=transport,
+            command=command,
+            args=args,
+            env=env,
+            cwd=cwd,
             enabled=enabled,
         )
         if not server:
@@ -1189,9 +1218,13 @@ class AgentService:
             "id": server.id,
             "user_id": server.user_id,
             "name": server.name,
+            "transport": server.transport,
             "url": server.url,
             "headers": server.headers,
-            "transport": server.transport,
+            "command": server.command,
+            "args": server.args,
+            "env": server.env,
+            "cwd": server.cwd,
             "enabled": server.enabled,
             "created_at": server.created_at.isoformat(),
             "updated_at": server.updated_at.isoformat(),
@@ -1220,12 +1253,21 @@ class AgentService:
                 cwd=server.cwd,
                 headers=server.headers,
             ) as session:
-                result = await session.list_tools()
+                result = await asyncio.wait_for(
+                    session.list_tools(),
+                    timeout=30.0,
+                )
 
             return {
                 "success": True,
                 "message": "Connection successful",
                 "tools_count": len(result.tools),
+            }
+        except asyncio.TimeoutError:
+            return {
+                "success": False,
+                "message": "Connection timeout after 30s",
+                "tools_count": 0,
             }
         except MCPError as e:
             return {

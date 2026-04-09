@@ -539,9 +539,13 @@ async def create_mcp_server(
     server = await service.create_mcp_server(
         user_id=current_user.id,
         name=data.name,
+        transport=data.transport,
         url=data.url,
         headers=data.headers,
-        transport=data.transport,
+        command=data.command,
+        args=data.args,
+        env=data.env,
+        cwd=data.cwd,
         enabled=data.enabled,
     )
     return APIResponse(data=server, message="MCP server created")
@@ -588,9 +592,13 @@ async def update_mcp_server(
         server_id=server_id,
         user_id=current_user.id,
         name=data.name,
+        transport=data.transport,
         url=data.url,
         headers=data.headers,
-        transport=data.transport,
+        command=data.command,
+        args=data.args,
+        env=data.env,
+        cwd=data.cwd,
         enabled=data.enabled,
     )
     if not server:

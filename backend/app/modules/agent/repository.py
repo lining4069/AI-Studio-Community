@@ -596,18 +596,26 @@ class AgentRepository:
         self,
         user_id: int,
         name: str,
-        url: str,
-        headers: dict | None = None,
         transport: str = "streamable_http",
+        url: str | None = None,
+        headers: dict | None = None,
+        command: str | None = None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
         enabled: bool = True,
     ) -> AgentMCPServer:
         """Create a new MCP server for a user."""
         server = AgentMCPServer(
             user_id=user_id,
             name=name,
+            transport=transport,
             url=url,
             headers=headers,
-            transport=transport,
+            command=command,
+            args=args,
+            env=env,
+            cwd=cwd,
             enabled=enabled,
         )
         self.db.add(server)
@@ -629,9 +637,13 @@ class AgentRepository:
         server_id: str,
         user_id: int,
         name: str | None = None,
+        transport: str | None = None,
         url: str | None = None,
         headers: dict | None = None,
-        transport: str | None = None,
+        command: str | None = None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
         enabled: bool | None = None,
     ) -> AgentMCPServer | None:
         """Update MCP server fields."""
@@ -642,12 +654,20 @@ class AgentRepository:
         updates: dict[str, Any] = {}
         if name is not None:
             updates["name"] = name
+        if transport is not None:
+            updates["transport"] = transport
         if url is not None:
             updates["url"] = url
         if headers is not None:
             updates["headers"] = headers
-        if transport is not None:
-            updates["transport"] = transport
+        if command is not None:
+            updates["command"] = command
+        if args is not None:
+            updates["args"] = args
+        if env is not None:
+            updates["env"] = env
+        if cwd is not None:
+            updates["cwd"] = cwd
         if enabled is not None:
             updates["enabled"] = enabled
 
