@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.modules.agent.models import (
     AgentConfig,
@@ -361,6 +362,23 @@ class AgentRepository:
     ) -> AgentConfig | None:
         """Get agent config by ID (optionally verify ownership)."""
         stmt = select(AgentConfig).where(AgentConfig.id == config_id)
+        if user_id is not None:
+            stmt = stmt.where(AgentConfig.user_id == user_id)
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    async def get_config_detail(
+        self, config_id: str, user_id: int | None = None
+    ) -> AgentConfig | None:
+        """Get agent config with all related resources eagerly loaded."""
+        stmt = (
+            select(AgentConfig)
+            .options(
+                selectinload(AgentConfig.tools),
+                selectinload(AgentConfig.mcp_links),
+                selectinload(AgentConfig.kb_links),
+            )
+            .where(AgentConfig.id == config_id)
+        )
         if user_id is not None:
             stmt = stmt.where(AgentConfig.user_id == user_id)
         return (await self.db.execute(stmt)).scalar_one_or_none()

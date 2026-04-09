@@ -928,6 +928,52 @@ class AgentService:
             "updated_at": config.updated_at.isoformat(),
         }
 
+    async def get_config_detail(self, config_id: str, user_id: int) -> dict | None:
+        """Get agent config with related tools, MCP links, and KB links."""
+        config = await self.repo.get_config_detail(config_id, user_id)
+        if not config:
+            return None
+        return {
+            "id": config.id,
+            "user_id": config.user_id,
+            "name": config.name,
+            "description": config.description,
+            "llm_model_id": config.llm_model_id,
+            "agent_type": config.agent_type,
+            "max_loop": config.max_loop,
+            "system_prompt": config.system_prompt,
+            "enabled": config.enabled,
+            "created_at": config.created_at.isoformat(),
+            "updated_at": config.updated_at.isoformat(),
+            "tools": [
+                {
+                    "id": tool.id,
+                    "config_id": tool.config_id,
+                    "tool_name": tool.tool_name,
+                    "tool_config": tool.tool_config,
+                    "enabled": tool.enabled,
+                }
+                for tool in config.tools
+            ],
+            "mcp_servers": [
+                {
+                    "id": link.id,
+                    "config_id": link.config_id,
+                    "mcp_server_id": link.mcp_server_id,
+                }
+                for link in config.mcp_links
+            ],
+            "kbs": [
+                {
+                    "id": link.id,
+                    "config_id": link.config_id,
+                    "kb_id": link.kb_id,
+                    "kb_config": link.kb_config,
+                }
+                for link in config.kb_links
+            ],
+        }
+
     async def list_configs(
         self, user_id: int, page: int = 1, page_size: int = 20
     ) -> tuple[list[dict], int]:

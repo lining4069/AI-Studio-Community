@@ -259,6 +259,101 @@ async def test_run_agent_uses_request_mcp_server_ids():
 
 
 @pytest.mark.asyncio
+async def test_get_config_handler_uses_detail_fetch():
+    service = AsyncMock()
+    service.get_config_detail.return_value = {"id": "cfg-1", "tools": []}
+    current_user = SimpleNamespace(id=7)
+
+    response = await agent_router_module.get_config("cfg-1", current_user, service)
+
+    service.get_config_detail.assert_awaited_once_with("cfg-1", 7)
+    assert response.data == {"id": "cfg-1", "tools": []}
+
+
+@pytest.mark.asyncio
+async def test_get_config_detail_returns_base_and_related_resources():
+    repo = AsyncMock()
+    repo.get_config_detail.return_value = SimpleNamespace(
+        id="cfg-1",
+        user_id=1,
+        name="Research Agent",
+        description="desc",
+        llm_model_id="llm-1",
+        agent_type="simple",
+        max_loop=5,
+        system_prompt="prompt",
+        enabled=True,
+        created_at=SimpleNamespace(isoformat=lambda: "2026-04-09T00:00:00Z"),
+        updated_at=SimpleNamespace(isoformat=lambda: "2026-04-09T01:00:00Z"),
+        tools=[
+            SimpleNamespace(
+                id=1,
+                config_id="cfg-1",
+                tool_name="calculator",
+                tool_config={},
+                enabled=True,
+            )
+        ],
+        mcp_links=[
+            SimpleNamespace(
+                id=2,
+                config_id="cfg-1",
+                mcp_server_id="mcp-1",
+            )
+        ],
+        kb_links=[
+            SimpleNamespace(
+                id=3,
+                config_id="cfg-1",
+                kb_id="kb-1",
+                kb_config={"top_k": 5},
+            )
+        ],
+    )
+    service = AgentService(repo, AsyncMock())
+
+    result = await service.get_config_detail("cfg-1", 1)
+
+    assert result == {
+        "id": "cfg-1",
+        "user_id": 1,
+        "name": "Research Agent",
+        "description": "desc",
+        "llm_model_id": "llm-1",
+        "agent_type": "simple",
+        "max_loop": 5,
+        "system_prompt": "prompt",
+        "enabled": True,
+        "created_at": "2026-04-09T00:00:00Z",
+        "updated_at": "2026-04-09T01:00:00Z",
+        "tools": [
+            {
+                "id": 1,
+                "config_id": "cfg-1",
+                "tool_name": "calculator",
+                "tool_config": {},
+                "enabled": True,
+            }
+        ],
+        "mcp_servers": [
+            {
+                "id": 2,
+                "config_id": "cfg-1",
+                "mcp_server_id": "mcp-1",
+            }
+        ],
+        "kbs": [
+            {
+                "id": 3,
+                "config_id": "cfg-1",
+                "kb_id": "kb-1",
+                "kb_config": {"top_k": 5},
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_builtin_tools_includes_rag_retrieval():
     service = AgentService(AsyncMock(), AsyncMock())
 

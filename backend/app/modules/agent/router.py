@@ -10,6 +10,7 @@ from app.dependencies.infras import DBAsyncSession
 from app.modules.agent.repository import AgentRepository
 from app.modules.agent.schema import (
     AgentConfigCreate,
+    AgentConfigDetailResponse,
     AgentConfigKBCreate,
     AgentConfigKBResponse,
     AgentConfigMCPCreate,
@@ -260,17 +261,17 @@ async def list_configs(
     configs, total = await service.list_configs(
         current_user.id, page=page, page_size=page_size
     )
-    return APIResponse(data=configs, total=total)
+    return APIResponse(data=configs, total=total)  # type: ignore[call-arg]
 
 
-@router.get("/configs/{config_id}", response_model=APIResponse[AgentConfigResponse])
+@router.get("/configs/{config_id}", response_model=APIResponse[AgentConfigDetailResponse])
 async def get_config(
     config_id: str,
     current_user: CurrentUser,
     service: AgentServiceDep,
 ):
     """Get an agent config by ID."""
-    config = await service.get_config(config_id, current_user.id)
+    config = await service.get_config_detail(config_id, current_user.id)
     if not config:
         from fastapi import HTTPException
 
@@ -572,7 +573,7 @@ async def list_mcp_servers(
 ):
     """List MCP servers for current user."""
     servers, total = await service.list_mcp_servers(current_user.id)
-    return APIResponse(data=servers, total=total)
+    return APIResponse(data=servers, total=total)  # type: ignore[call-arg]
 
 
 @router.get(
