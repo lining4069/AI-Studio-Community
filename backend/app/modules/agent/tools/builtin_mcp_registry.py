@@ -4,7 +4,6 @@ Builtin MCP Registry.
 内置 MCP 工具注册表，提供 calculator / datetime / rag_retrieval 等内置工具。
 """
 
-from typing import Any
 from app.modules.agent.tools.base import Tool
 
 
@@ -32,6 +31,7 @@ class BuiltinMCPRegistry:
 
 class BuiltinMCPTool(Tool):
     """内置 MCP 运行时工具。"""
+
     name: str
     description: str
     input_schema: dict

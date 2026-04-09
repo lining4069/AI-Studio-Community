@@ -5,14 +5,14 @@ Builtin MCP Specs.
 支持：calculator / datetime / rag_retrieval
 """
 
-from datetime import datetime
 import ast
 import operator
+from datetime import datetime
 
 from app.modules.agent.tools.builtin_mcp_registry import registry
 
 
-async def calculator_handler(input: dict, rag_service) -> dict:
+async def calculator_handler(input: dict, _rag_service) -> dict:
     """数学计算处理器。"""
     expression = input.get("expression", "")
 
@@ -40,13 +40,13 @@ async def calculator_handler(input: dict, rag_service) -> dict:
         raise ValueError(f"Unsupported: {type(node).__name__}")
 
     try:
-        parsed = ast.parse(expression, mode='eval')
+        parsed = ast.parse(expression, mode="eval")
         return {"result": eval_node(parsed.body)}
     except Exception as e:
         return {"error": f"Calculation error: {e}"}
 
 
-async def datetime_handler(input: dict, rag_service) -> dict:
+async def datetime_handler(_input: dict, _rag_service) -> dict:
     """日期时间处理器。"""
     now = datetime.now()
     return {
@@ -80,44 +80,53 @@ async def rag_retrieval_handler(input: dict, rag_service) -> dict:
 
 
 # 注册内置工具
-registry.register("calculator", {
-    "name": "calculator",
-    "description": "Mathematical calculator for arithmetic expressions",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "expression": {
-                "type": "string",
-                "description": "Mathematical expression (e.g., '2 + 3 * 4')",
-            }
+registry.register(
+    "calculator",
+    {
+        "name": "calculator",
+        "description": "Mathematical calculator for arithmetic expressions",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "Mathematical expression (e.g., '2 + 3 * 4')",
+                }
+            },
+            "required": ["expression"],
         },
-        "required": ["expression"]
+        "handler": calculator_handler,
     },
-    "handler": calculator_handler,
-})
+)
 
-registry.register("datetime", {
-    "name": "datetime",
-    "description": "Get current date and time",
-    "input_schema": {
-        "type": "object",
-        "properties": {},
-    },
-    "handler": datetime_handler,
-})
-
-registry.register("rag_retrieval", {
-    "name": "rag_retrieval",
-    "description": "Knowledge base retrieval for finding relevant documents",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "Search query for knowledge base",
-            }
+registry.register(
+    "datetime",
+    {
+        "name": "datetime",
+        "description": "Get current date and time",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
         },
-        "required": ["query"]
+        "handler": datetime_handler,
     },
-    "handler": rag_retrieval_handler,
-})
+)
+
+registry.register(
+    "rag_retrieval",
+    {
+        "name": "rag_retrieval",
+        "description": "Knowledge base retrieval for finding relevant documents",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query for knowledge base",
+                }
+            },
+            "required": ["query"],
+        },
+        "handler": rag_retrieval_handler,
+    },
+)

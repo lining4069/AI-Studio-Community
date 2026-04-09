@@ -292,12 +292,10 @@ class AgentMCPServerCreate(AgentMCPServerBase):
     """Schema for creating MCP server"""
 
     model_config = ConfigDict(
-        json_schema_extra={
-            "validator": "validate_transport_fields"
-        }
+        json_schema_extra={"validator": "validate_transport_fields"}
     )
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_transport_fields(self):
         """Validate fields based on transport type."""
         if self.transport in ("sse", "streamable_http") and not self.url:

@@ -17,9 +17,10 @@ class MCPToolConfig:
     由 Agent 层的 MCPConfigItem 转化而来，
     包含连接单个 MCP Server 所需的全部传输配置。
     """
+
     mcp_server_id: str
-    name: str                    # MCP 服务器名称
-    transport: str               # "stdio" | "sse" | "streamable_http"
+    name: str  # MCP 服务器名称
+    transport: str  # "stdio" | "sse" | "streamable_http"
 
     # HTTP/SSE 传输
     url: str | None = None
@@ -32,4 +33,4 @@ class MCPToolConfig:
     cwd: str | None = None
 
     # 超时配置
-    call_timeout: float = 10.0    # call_tool 超时（秒）
+    call_timeout: float = 10.0  # call_tool 超时（秒）

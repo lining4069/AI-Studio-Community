@@ -11,7 +11,6 @@ MCP Layer 独立于 Agent 系统，不引用 Tool ABC 或 Agent domain 类。
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
 
 
 @dataclass
@@ -21,6 +20,7 @@ class MCPToolDefinition:
 
     Agent 适配器负责将其转化为 Tool ABC 接口。
     """
+
     name: str
     description: str
     input_schema: dict  # MCP JSON-RPC schema 格式

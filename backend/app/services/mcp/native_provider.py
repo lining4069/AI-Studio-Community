@@ -11,15 +11,12 @@ Native MCP Provider - MCP Python Native SDK 实现。
 import asyncio
 from typing import Any
 
-from mcp import ClientSession
-
-from app.services.mcp.provider import MCPProvider, MCPToolDefinition
-from app.services.mcp.session import create_session
 from app.services.mcp.exceptions import (
     MCPConnectionError,
-    MCPProtocolError,
     MCPToolExecutionError,
 )
+from app.services.mcp.provider import MCPProvider, MCPToolDefinition
+from app.services.mcp.session import create_session
 
 
 class NativeMCPProvider(MCPProvider):
@@ -76,22 +73,24 @@ class NativeMCPProvider(MCPProvider):
                     session.list_tools(),
                     timeout=30.0,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError as err:
                 raise MCPConnectionError(
                     f"MCP server {self._server_name} list_tools() timeout after 30s"
-                )
+                ) from err
 
         tools = []
         for t in result.tools:
-            input_schema = getattr(t, 'inputSchema', None) or {
+            input_schema = getattr(t, "inputSchema", None) or {
                 "type": "object",
-                "properties": {}
+                "properties": {},
             }
-            tools.append(MCPToolDefinition(
-                name=t.name,
-                description=t.description or "",
-                input_schema=input_schema,
-            ))
+            tools.append(
+                MCPToolDefinition(
+                    name=t.name,
+                    description=t.description or "",
+                    input_schema=input_schema,
+                )
+            )
         return tools
 
     async def call_tool(self, tool_name: str, input: dict) -> dict:
@@ -110,29 +109,27 @@ class NativeMCPProvider(MCPProvider):
                     session.call_tool(tool_name, input),
                     timeout=self._call_timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError as err:
                 raise MCPToolExecutionError(
                     f"Tool {tool_name} timeout after {self._call_timeout}s"
-                )
+                ) from err
             except MCPConnectionError:
                 raise
             except Exception as e:
-                raise MCPToolExecutionError(
-                    f"Tool {tool_name} failed: {e}"
-                ) from e
+                raise MCPToolExecutionError(f"Tool {tool_name} failed: {e}") from e
 
         return self._parse_result(result)
 
     def _parse_result(self, result) -> dict:
         """解析 MCP CallToolResult，支持多 content type"""
-        if not hasattr(result, 'content') or not result.content:
+        if not hasattr(result, "content") or not result.content:
             return {"result": str(result) if result else ""}
 
         outputs = []
         for item in result.content:
-            if hasattr(item, 'text'):
+            if hasattr(item, "text"):
                 outputs.append(item.text)
-            elif hasattr(item, 'data'):
+            elif hasattr(item, "data"):
                 outputs.append(f"<binary data: {len(item.data)} bytes>")
             else:
                 outputs.append(str(item))
