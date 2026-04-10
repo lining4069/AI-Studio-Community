@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/api/client";
 import type {
   KbDocumentCreate,
+  KbDocumentUpdate,
   KbDocumentResponse,
   KbFileResponse,
   RAGRequest,
@@ -59,6 +60,25 @@ export function useCreateKnowledgeBase() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["knowledge-bases"] });
       toast.success("知识库已创建");
+    },
+  });
+}
+
+export function useUpdateKnowledgeBase(kbId?: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: KbDocumentUpdate) => {
+      const response = await apiClient.put<KbDocumentResponse, KbDocumentUpdate>(
+        `/v1/knowledge-bases/${kbId}`,
+        payload,
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["knowledge-bases"] });
+      queryClient.invalidateQueries({ queryKey: ["knowledge-bases", kbId] });
+      toast.success("知识库配置已保存");
     },
   });
 }

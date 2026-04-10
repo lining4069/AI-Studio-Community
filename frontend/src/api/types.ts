@@ -9,6 +9,7 @@ export type RefreshTokenRequest = ApiSchemas["RefreshTokenRequest"];
 export type RefreshTokenResponse = ApiSchemas["RefreshTokenResponse"];
 export type KbDocumentResponse = ApiSchemas["KbDocumentResponse"];
 export type KbDocumentCreate = ApiSchemas["KbDocumentCreate"];
+export type KbDocumentUpdate = ApiSchemas["KbDocumentUpdate"];
 export type KbFileResponse = ApiSchemas["KbFileResponse"];
 export type AgentConfigResponse = ApiSchemas["AgentConfigResponse"];
 export type AgentConfigDetailResponse = ApiSchemas["AgentConfigDetailResponse"];
