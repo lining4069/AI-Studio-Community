@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
 
-ENVFILE_PATH = os.path.join(BASE_DIR, f".env.{os.getenv('ENVIRONMENT', 'prod')}")
+ENVFILE_PATH = os.path.join(BASE_DIR, f".env.{os.getenv('ENVIRONMENT', 'production')}")
 
 
 # 系统设置类

@@ -31,6 +31,7 @@ def create_app(
 ) -> FastAPI:
 
     app = FastAPI(
+        debug=settings.DEBUG,
         title="AI Studio",
         version="1.0.0",
         lifespan=lifespan,
