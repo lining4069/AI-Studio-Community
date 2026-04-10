@@ -1,6 +1,7 @@
-import { Bot, BrainCircuit, Database, Menu, Settings2 } from "lucide-react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Bot, BrainCircuit, Database, LogOut, Menu, Settings2 } from "lucide-react";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+import { useCurrentUser, useLogout } from "@/api/endpoints/auth";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/store/ui-store";
 import { cn } from "@/lib/utils";
@@ -14,7 +15,18 @@ const navItems: NavItem[] = [
 ];
 
 export function AppShell() {
+  const navigate = useNavigate();
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
+  const currentUser = useCurrentUser();
+  const logout = useLogout();
+
+  const handleLogout = async () => {
+    try {
+      await logout.mutateAsync();
+    } finally {
+      navigate("/login", { replace: true });
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_30%),linear-gradient(180deg,_#f8fbff_0%,_#f6f7fb_100%)] text-slate-950">
@@ -86,6 +98,24 @@ export function AppShell() {
                 <p className="mt-2 text-sm text-slate-500">
                   面向知识库、Agent 与模型配置的一体化桌面工作台。
                 </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="hidden rounded-2xl bg-slate-50 px-4 py-3 text-right sm:block">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">
+                    当前用户
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-slate-950">
+                    {currentUser.data?.nickname ?? currentUser.data?.username ?? "已登录用户"}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleLogout}
+                  disabled={logout.isPending}
+                >
+                  <LogOut className="mr-2 size-4" />
+                  {logout.isPending ? "退出中..." : "退出登录"}
+                </Button>
               </div>
             </div>
           </div>
