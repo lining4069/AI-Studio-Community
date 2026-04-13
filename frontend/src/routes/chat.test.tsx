@@ -2,12 +2,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { act } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ChatRoute } from "@/routes/chat";
 
-const mockRunAgent = vi.fn();
-const mockNavigate = vi.fn();
+const { mockRunAgent, mockRunAgentStream, mockNavigate } = vi.hoisted(() => ({
+  mockRunAgent: vi.fn(),
+  mockRunAgentStream: vi.fn(),
+  mockNavigate: vi.fn(),
+}));
 let mockMessages: Array<{
   id: string;
   role: string;
@@ -38,6 +42,7 @@ vi.mock("@/api/endpoints/agent", () => ({
     mutateAsync: mockRunAgent,
     isPending: false,
   }),
+  runAgentStream: mockRunAgentStream,
   useSessionDetail: () => ({
     data: {
       id: "sess-1",
@@ -96,6 +101,7 @@ function renderRoute() {
 describe("ChatRoute formal workspace", () => {
   beforeEach(() => {
     mockRunAgent.mockReset();
+    mockRunAgentStream.mockReset();
     mockNavigate.mockReset();
     mockMessages = [
       {
@@ -118,9 +124,52 @@ describe("ChatRoute formal workspace", () => {
       summary: null,
       steps: [],
     });
+    mockRunAgentStream.mockImplementation(async (_sessionId, options) => {
+      options.onEvent({
+        event: "step_start",
+        data: {
+          step_id: "stream-step-1",
+          step_index: 2,
+          type: "tool",
+          name: "mcp_search",
+          status: "running",
+        },
+      });
+      options.onEvent({
+        event: "content",
+        data: {
+          content: "这是流式返回中的助手回答片段。",
+        },
+      });
+      options.onEvent({
+        event: "step_end",
+        data: {
+          step_id: "stream-step-1",
+          step_index: 2,
+          status: "success",
+          output: "已获取最新搜索结果",
+        },
+      });
+      mockMessages = [
+        ...mockMessages,
+        {
+          id: "msg-3",
+          role: "assistant",
+          content: "这是流式返回中的助手回答片段。",
+          created_at: "2026-04-13T12:11:00Z",
+        },
+      ];
+      options.onEvent({
+        event: "run_end",
+        data: {
+          run_id: "run-1",
+          output: "已经开始执行新的分析任务。",
+        },
+      });
+    });
   });
 
-  test("renders formal message stream and run panel, then sends a prompt", async () => {
+  test("prefers streaming run and updates steps in real time", async () => {
     const user = userEvent.setup();
 
     renderRoute();
@@ -152,12 +201,29 @@ describe("ChatRoute formal workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() =>
-      expect(mockRunAgent).toHaveBeenCalledWith({
-        input: "继续分析当前配置",
-        stream: false,
-        debug: false,
-        mcp_server_ids: [],
+      expect(mockRunAgentStream).toHaveBeenCalledWith("sess-1", {
+        onEvent: expect.any(Function),
+        payload: {
+          input: "继续分析当前配置",
+          stream: true,
+          debug: false,
+          mcp_server_ids: [],
+        },
       }),
+    );
+    expect(mockRunAgent).not.toHaveBeenCalled();
+    expect(screen.getByText("mcp_search")).toBeInTheDocument();
+    expect(screen.getByText("已获取最新搜索结果")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("这是流式返回中的助手回答片段。").length,
+    ).toBeGreaterThan(0);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        screen.getAllByText("这是流式返回中的助手回答片段。"),
+      ).toHaveLength(1),
     );
   });
 

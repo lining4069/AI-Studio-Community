@@ -13,6 +13,7 @@ type ChatMessageListProps = {
   messages: SessionMessage[];
   isSending?: boolean;
   pendingInput?: string;
+  streamingAssistantContent?: string;
   errorMessage?: string | null;
   onPickSuggestion?: (value: string) => void;
 };
@@ -27,6 +28,7 @@ export function ChatMessageList({
   messages,
   isSending = false,
   pendingInput,
+  streamingAssistantContent,
   errorMessage,
   onPickSuggestion,
 }: ChatMessageListProps) {
@@ -147,7 +149,7 @@ export function ChatMessageList({
         </div>
       ) : null}
 
-      {isSending ? (
+      {streamingAssistantContent || isSending ? (
         <div className="flex gap-4">
           <div className="mt-1 flex size-10 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
             <Bot className="size-5" />
@@ -156,10 +158,24 @@ export function ChatMessageList({
             <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100">
               助手回答
             </Badge>
-            <div className="mt-4 flex items-center gap-3 text-sm text-slate-500">
-              <CircleEllipsis className="size-4 animate-pulse" />
-              正在发送，本次回复生成中...
-            </div>
+            {streamingAssistantContent ? (
+              <div className="mt-4 space-y-3">
+                <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                  {streamingAssistantContent}
+                </p>
+                {isSending ? (
+                  <div className="flex items-center gap-3 text-sm text-slate-500">
+                    <CircleEllipsis className="size-4 animate-pulse" />
+                    助手仍在继续生成中...
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mt-4 flex items-center gap-3 text-sm text-slate-500">
+                <CircleEllipsis className="size-4 animate-pulse" />
+                正在发送，本次回复生成中...
+              </div>
+            )}
           </div>
         </div>
       ) : null}

@@ -16,7 +16,71 @@ import type {
   AgentSessionResponse,
   BuiltinToolsResponse,
 } from "@/api/types";
+import type { AgentStreamEvent } from "@/features/agent/chat/stream";
+import { parseAgentStreamBuffer } from "@/features/agent/chat/stream";
+import { env } from "@/lib/env";
+import { authStorage } from "@/lib/storage";
 import { extractListData } from "@/lib/data";
+
+type RunAgentStreamOptions = {
+  payload: AgentRunRequest;
+  onEvent: (event: AgentStreamEvent) => void;
+};
+
+export async function runAgentStream(
+  sessionId: string,
+  options: RunAgentStreamOptions,
+) {
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+  });
+  const tokens = authStorage.getTokens();
+
+  if (tokens?.accessToken) {
+    headers.set("Authorization", `Bearer ${tokens.accessToken}`);
+  }
+
+  const response = await fetch(
+    `${env.apiBaseUrl}/v1/agent/sessions/${sessionId}/runs`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(options.payload),
+    },
+  );
+
+  if (!response.ok || !response.body) {
+    const text = await response.text();
+    throw new Error(text || `Request failed with ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const parsed = parseAgentStreamBuffer(buffer);
+    buffer = parsed.remainder;
+
+    for (const event of parsed.events) {
+      options.onEvent(event);
+    }
+  }
+
+  if (buffer) {
+    const parsed = parseAgentStreamBuffer(`${buffer}\n\n`);
+    for (const event of parsed.events) {
+      options.onEvent(event);
+    }
+  }
+}
 
 export function useAgentConfigs() {
   return useQuery({
