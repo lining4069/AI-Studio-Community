@@ -2004,6 +2004,8 @@ export interface components {
             title?: string | null;
             /** Summary */
             summary?: string | null;
+            /** Latest Message Preview */
+            latest_message_preview?: string | null;
             /**
              * Created At
              * Format: date-time

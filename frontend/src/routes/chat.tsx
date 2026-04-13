@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import {
+  useAgentConfigDetail,
   useRunAgent,
   useSessionDetail,
   useSessionMessages,
@@ -25,10 +26,13 @@ import {
 import { getErrorMessage } from "@/lib/data";
 
 export function ChatRoute() {
+  const navigate = useNavigate();
   const { sessionId } = useParams();
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [input, setInput] = useState("");
   const [pendingInput, setPendingInput] = useState("");
   const session = useSessionDetail(sessionId);
+  const agentConfig = useAgentConfigDetail(session.data?.config_id);
   const messages = useSessionMessages(sessionId);
   const steps = useSessionSteps(sessionId);
   const runAgent = useRunAgent(sessionId);
@@ -69,6 +73,11 @@ export function ChatRoute() {
           title={effectiveTitle}
           updatedAt={session.data?.updated_at}
           sessionId={session.data?.id ?? sessionId}
+          onBack={
+            session.data?.config_id
+              ? () => navigate(`/agents/${session.data.config_id}`)
+              : undefined
+          }
         />
         <Card className="min-h-[420px]">
           <CardContent className="space-y-4">
@@ -77,6 +86,10 @@ export function ChatRoute() {
               isSending={runAgent.isPending}
               pendingInput={runAgent.isPending ? pendingInput : undefined}
               errorMessage={errorMessage}
+              onPickSuggestion={(value) => {
+                setInput(value);
+                composerRef.current?.focus();
+              }}
             />
           </CardContent>
         </Card>
@@ -87,6 +100,7 @@ export function ChatRoute() {
               onChange={setInput}
               onSend={handleSend}
               isSending={runAgent.isPending}
+              textareaRef={composerRef}
             />
           </CardContent>
         </Card>
@@ -98,6 +112,8 @@ export function ChatRoute() {
             steps={normalizedSteps}
             sessionId={session.data?.id ?? sessionId}
             title={effectiveTitle}
+            agentName={agentConfig.data?.name}
+            agentDescription={agentConfig.data?.description ?? undefined}
             createdAt={session.data?.created_at}
             updatedAt={session.data?.updated_at}
           />

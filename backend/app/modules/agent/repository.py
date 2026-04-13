@@ -100,6 +100,28 @@ class AgentRepository:
             .limit(page_size)
         )
         items = list((await self.db.execute(stmt)).scalars().all())
+
+        if items:
+            session_ids = [session.id for session in items]
+            message_stmt = (
+                select(
+                    AgentMessage.session_id,
+                    AgentMessage.content,
+                )
+                .where(AgentMessage.session_id.in_(session_ids))
+                .order_by(
+                    AgentMessage.session_id.asc(),
+                    AgentMessage.created_at.desc(),
+                )
+            )
+            preview_by_session: dict[str, str] = {}
+            for session_id_value, content in (await self.db.execute(message_stmt)).all():
+                if session_id_value not in preview_by_session and content:
+                    preview_by_session[session_id_value] = content
+
+            for session in items:
+                session.latest_message_preview = preview_by_session.get(session.id)
+
         return items, total
 
     # =========================================================================

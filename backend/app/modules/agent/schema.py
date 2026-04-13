@@ -28,6 +28,7 @@ class AgentSessionResponse(BaseModel):
     config_id: str | None = None
     title: str | None = None
     summary: str | None = None
+    latest_message_preview: str | None = None
     created_at: datetime
     updated_at: datetime
 

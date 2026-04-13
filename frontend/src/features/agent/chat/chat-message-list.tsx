@@ -1,7 +1,9 @@
 import { Bot, CircleEllipsis, UserRound } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn, formatDate } from "@/lib/utils";
 
 import type { SessionMessage } from "@/features/agent/chat/types";
@@ -12,20 +14,57 @@ type ChatMessageListProps = {
   isSending?: boolean;
   pendingInput?: string;
   errorMessage?: string | null;
+  onPickSuggestion?: (value: string) => void;
 };
+
+const starterPrompts = [
+  "先帮我总结当前助手的能力边界",
+  "请列出当前会话可用的工具与知识库资源",
+  "结合现有配置，给我一个适合继续追问的方向",
+];
 
 export function ChatMessageList({
   messages,
   isSending = false,
   pendingInput,
   errorMessage,
+  onPickSuggestion,
 }: ChatMessageListProps) {
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!messages.length && !pendingInput && !errorMessage) {
+      return;
+    }
+
+    if (typeof endRef.current?.scrollIntoView === "function") {
+      endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [errorMessage, messages.length, pendingInput, isSending]);
+
   if (!messages.length && !pendingInput) {
     return (
-      <EmptyState
-        title="当前还没有历史消息"
-        description="从这里开始和当前助手进行第一轮对话。发送问题后，你会看到正式消息流和执行步骤，而不是原始 JSON。"
-      />
+      <div className="space-y-5">
+        <EmptyState
+          title="当前还没有历史消息"
+          description="从这里开始和当前助手进行第一轮对话。发送问题后，你会看到正式消息流和执行步骤，而不是原始 JSON。"
+        />
+        <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm font-medium text-slate-950">推荐首问</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {starterPrompts.map((prompt) => (
+              <Button
+                key={prompt}
+                variant="outline"
+                onClick={() => onPickSuggestion?.(prompt)}
+                className="rounded-full"
+              >
+                {prompt}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -131,6 +170,8 @@ export function ChatMessageList({
           <p className="mt-2 whitespace-pre-wrap leading-6">{errorMessage}</p>
         </div>
       ) : null}
+
+      <div ref={endRef} />
     </div>
   );
 }

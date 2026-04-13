@@ -88,6 +88,12 @@ export function SessionList({
                     <p className="text-base font-semibold text-slate-950">
                       {clampText(session.title || "默认会话", 32)}
                     </p>
+                    <p className="text-sm leading-6 text-slate-600">
+                      {clampText(
+                        session.latest_message_preview || "当前会话还没有沉淀消息摘要。",
+                        88,
+                      )}
+                    </p>
                     <div className="space-y-1 text-sm text-slate-500">
                       <p>最近更新：{formatDate(session.updated_at)}</p>
                       <p>创建时间：{formatDate(session.created_at)}</p>

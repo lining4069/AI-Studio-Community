@@ -1,4 +1,5 @@
 import { SendHorizonal } from "lucide-react";
+import type { RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,6 +9,7 @@ type ChatComposerProps = {
   onChange: (value: string) => void;
   onSend: () => void;
   isSending?: boolean;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
 };
 
 export function ChatComposer({
@@ -15,13 +17,26 @@ export function ChatComposer({
   onChange,
   onSend,
   isSending = false,
+  textareaRef,
 }: ChatComposerProps) {
   return (
     <div className="space-y-3">
       <Textarea
+        ref={textareaRef}
         rows={5}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || event.shiftKey) {
+            return;
+          }
+
+          event.preventDefault();
+
+          if (!isSending && value.trim()) {
+            onSend();
+          }
+        }}
         placeholder="继续向当前助手提问..."
       />
       <div className="flex items-center justify-between gap-3 text-xs text-slate-400">

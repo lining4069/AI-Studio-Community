@@ -317,6 +317,37 @@ async def test_list_sessions_forwards_config_filter():
 
 
 @pytest.mark.asyncio
+async def test_list_sessions_page_includes_latest_message_preview():
+    now = datetime.now()
+    repo = AsyncMock()
+    repo.list_sessions.return_value = (
+        [
+            SimpleNamespace(
+                id="sess-1",
+                user_id=1,
+                config_id="cfg-1",
+                title="默认会话",
+                summary=None,
+                latest_message_preview="最近一条助手回复摘要",
+                created_at=now,
+                updated_at=now,
+            )
+        ],
+        1,
+    )
+    service = AgentService(repo, AsyncMock())
+
+    page = await service.list_sessions_page(
+        1,
+        page=1,
+        page_size=20,
+        config_id="cfg-1",
+    )
+
+    assert page.items[0].latest_message_preview == "最近一条助手回复摘要"
+
+
+@pytest.mark.asyncio
 async def test_run_agent_updates_default_session_title_from_first_message():
     repo = AsyncMock()
     repo.get_session.return_value = SimpleNamespace(

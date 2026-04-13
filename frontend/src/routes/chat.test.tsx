@@ -7,8 +7,33 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { ChatRoute } from "@/routes/chat";
 
 const mockRunAgent = vi.fn();
+const mockNavigate = vi.fn();
+let mockMessages: Array<{
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+}> = [];
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>(
+    "react-router-dom",
+  );
+
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 vi.mock("@/api/endpoints/agent", () => ({
+  useAgentConfigDetail: () => ({
+    data: {
+      id: "cfg-1",
+      name: "研究助手",
+      description: "负责 MCP、RAG 与系统设计调研",
+    },
+  }),
   useRunAgent: () => ({
     mutateAsync: mockRunAgent,
     isPending: false,
@@ -23,20 +48,7 @@ vi.mock("@/api/endpoints/agent", () => ({
     },
   }),
   useSessionMessages: () => ({
-    data: [
-      {
-        id: "msg-1",
-        role: "user",
-        content: "请总结当前助手的能力组成",
-        created_at: "2026-04-13T12:10:00Z",
-      },
-      {
-        id: "msg-2",
-        role: "assistant",
-        content: "当前助手具备模型接入、知识库检索、工具调用和 MCP 扩展能力。",
-        created_at: "2026-04-13T12:10:08Z",
-      },
-    ],
+    data: mockMessages,
   }),
   useSessionSteps: () => ({
     data: [
@@ -84,6 +96,21 @@ function renderRoute() {
 describe("ChatRoute formal workspace", () => {
   beforeEach(() => {
     mockRunAgent.mockReset();
+    mockNavigate.mockReset();
+    mockMessages = [
+      {
+        id: "msg-1",
+        role: "user",
+        content: "请总结当前助手的能力组成",
+        created_at: "2026-04-13T12:10:00Z",
+      },
+      {
+        id: "msg-2",
+        role: "assistant",
+        content: "当前助手具备模型接入、知识库检索、工具调用和 MCP 扩展能力。",
+        created_at: "2026-04-13T12:10:08Z",
+      },
+    ];
     mockRunAgent.mockResolvedValue({
       session_id: "sess-1",
       output: "已经开始执行新的分析任务。",
@@ -103,12 +130,20 @@ describe("ChatRoute formal workspace", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("用户消息")).toBeInTheDocument();
     expect(screen.getByText("助手回答")).toBeInTheDocument();
+    expect(screen.getByText("当前助手")).toBeInTheDocument();
+    expect(screen.getByText("研究助手")).toBeInTheDocument();
     expect(
       screen.getByText("当前助手具备模型接入、知识库检索、工具调用和 MCP 扩展能力。"),
     ).toBeInTheDocument();
     expect(screen.getByText("本次执行步骤")).toBeInTheDocument();
     expect(screen.getByText("意图理解")).toBeInTheDocument();
     expect(screen.getByText("rag_retrieval")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "返回助手详情" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回助手详情" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/agents/cfg-1");
 
     await user.type(
       screen.getByPlaceholderText("继续向当前助手提问..."),
@@ -124,5 +159,22 @@ describe("ChatRoute formal workspace", () => {
         mcp_server_ids: [],
       }),
     );
+  });
+
+  test("fills and focuses composer after picking a starter prompt", async () => {
+    mockMessages = [];
+    const user = userEvent.setup();
+
+    renderRoute();
+
+    const suggestion = screen.getByRole("button", {
+      name: "先帮我总结当前助手的能力边界",
+    });
+
+    await user.click(suggestion);
+
+    const textarea = screen.getByPlaceholderText("继续向当前助手提问...");
+    expect(textarea).toHaveValue("先帮我总结当前助手的能力边界");
+    expect(textarea).toHaveFocus();
   });
 });

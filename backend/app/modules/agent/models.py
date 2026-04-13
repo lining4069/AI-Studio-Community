@@ -83,6 +83,7 @@ class AgentSession(Base, TimestampMixin):
 
     # Light memory: conversation summary
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    latest_message_preview = None
 
     def __repr__(self):
         return f"<AgentSession(id={self.id}, mode={self.mode})>"
