@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/data";
 import {
   knowledgeBaseOverviewSchema,
+  type KnowledgeBaseOverviewFormValues,
   type KnowledgeBaseOverviewSchema,
 } from "@/lib/validators/knowledge-base";
 import { formatDate } from "@/lib/utils";
@@ -40,7 +41,11 @@ export function KnowledgeBaseOverviewForm({
   rerankModels,
 }: OverviewFormProps) {
   const updateKnowledgeBase = useUpdateKnowledgeBase(kbId);
-  const form = useForm<KnowledgeBaseOverviewSchema>({
+  const form = useForm<
+    KnowledgeBaseOverviewFormValues,
+    unknown,
+    KnowledgeBaseOverviewSchema
+  >({
     resolver: zodResolver(knowledgeBaseOverviewSchema),
     defaultValues: {
       name: detail.name,
