@@ -5,12 +5,16 @@ import { apiClient } from "@/api/client";
 import type {
   AgentMCPServerCreate,
   AgentMCPServerResponse,
+  AgentMCPServerUpdate,
   EmbeddingModelCreate,
   EmbeddingModelResponse,
+  EmbeddingModelUpdate,
   LlmModelCreate,
   LlmModelResponse,
+  LlmModelUpdate,
   RerankModelCreate,
   RerankModelResponse,
+  RerankModelUpdate,
 } from "@/api/types";
 
 type PageData<T> = {
@@ -47,6 +51,24 @@ export function useCreateMcpServer() {
   });
 }
 
+export function useUpdateMcpServer(serverId?: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: AgentMCPServerUpdate) => {
+      const response = await apiClient.put<
+        AgentMCPServerResponse,
+        AgentMCPServerUpdate
+      >(`/v1/agent/mcp-servers/${serverId}`, payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "mcp-servers"] });
+      toast.success("MCP Server 已更新");
+    },
+  });
+}
+
 export function useChatModels() {
   return useQuery({
     queryKey: ["settings", "chat-models"],
@@ -71,6 +93,24 @@ export function useCreateChatModel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings", "chat-models"] });
       toast.success("Chat Model 已创建");
+    },
+  });
+}
+
+export function useUpdateChatModel(modelId?: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: LlmModelUpdate) => {
+      const response = await apiClient.put<LlmModelResponse, LlmModelUpdate>(
+        `/v1/llm-models/${modelId}`,
+        payload,
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "chat-models"] });
+      toast.success("Chat Model 已更新");
     },
   });
 }
@@ -105,6 +145,24 @@ export function useCreateEmbeddingModel() {
   });
 }
 
+export function useUpdateEmbeddingModel(modelId?: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: EmbeddingModelUpdate) => {
+      const response = await apiClient.put<
+        EmbeddingModelResponse,
+        EmbeddingModelUpdate
+      >(`/v1/embedding-models/${modelId}`, payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "embedding-models"] });
+      toast.success("Embedding Model 已更新");
+    },
+  });
+}
+
 export function useRerankModels() {
   return useQuery({
     queryKey: ["settings", "rerank-models"],
@@ -131,6 +189,24 @@ export function useCreateRerankModel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings", "rerank-models"] });
       toast.success("Rerank Model 已创建");
+    },
+  });
+}
+
+export function useUpdateRerankModel(modelId?: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: RerankModelUpdate) => {
+      const response = await apiClient.put<RerankModelResponse, RerankModelUpdate>(
+        `/v1/rerank-models/${modelId}`,
+        payload,
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "rerank-models"] });
+      toast.success("Rerank Model 已更新");
     },
   });
 }

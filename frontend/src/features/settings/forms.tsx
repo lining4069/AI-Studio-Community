@@ -3,10 +3,18 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import {
+  type AgentMCPServerResponse,
+  type EmbeddingModelResponse,
+  type LlmModelResponse,
+  type RerankModelResponse,
   useCreateChatModel,
   useCreateEmbeddingModel,
   useCreateMcpServer,
   useCreateRerankModel,
+  useUpdateChatModel,
+  useUpdateEmbeddingModel,
+  useUpdateMcpServer,
+  useUpdateRerankModel,
 } from "@/api/endpoints/settings";
 import { useUpdateUserProfile } from "@/api/endpoints/user";
 import { Button } from "@/components/ui/button";
@@ -17,6 +25,8 @@ import {
   getErrorMessage,
   parseKeyValueText,
   parseLines,
+  stringifyKeyValueText,
+  stringifyLines,
 } from "@/lib/data";
 import {
   chatModelSchema,
@@ -33,6 +43,8 @@ import {
 type BaseFormProps = {
   onSuccess?: () => void;
 };
+
+type FormMode = "create" | "edit";
 
 export function ProfileForm({
   initialValues,
@@ -85,24 +97,35 @@ export function ProfileForm({
   );
 }
 
-export function McpServerForm({ onSuccess }: BaseFormProps) {
+export function McpServerForm({
+  onSuccess,
+  mode = "create",
+  server,
+}: BaseFormProps & {
+  mode?: FormMode;
+  server?: Partial<AgentMCPServerResponse> | null;
+}) {
   const createMcp = useCreateMcpServer();
+  const updateMcp = useUpdateMcpServer(server?.id);
   const form = useForm<McpServerSchema>({
     resolver: zodResolver(mcpServerSchema),
-    defaultValues: {
-      name: "",
-      transport: "streamable_http",
-      url: "",
-      command: "",
-      argsText: "",
-      headersText: "",
-      envText: "",
-      cwd: "",
+    values: {
+      name: server?.name ?? "",
+      transport: server?.transport ?? "streamable_http",
+      url: server?.url ?? "",
+      command: server?.command ?? "",
+      argsText: stringifyLines(server?.args),
+      headersText: stringifyKeyValueText(server?.headers as Record<string, unknown> | null | undefined),
+      envText: stringifyKeyValueText(server?.env),
+      cwd: server?.cwd ?? "",
     },
   });
+  const transport = form.watch("transport");
+  const usesUrlFields = transport === "streamable_http" || transport === "sse";
+  const usesCommandFields = transport === "stdio";
 
   const onSubmit = form.handleSubmit(async (values) => {
-    await createMcp.mutateAsync({
+    const payload = {
       name: values.name,
       transport: values.transport,
       url: values.url || undefined,
@@ -111,11 +134,19 @@ export function McpServerForm({ onSuccess }: BaseFormProps) {
       headers: parseKeyValueText(values.headersText ?? ""),
       env: parseKeyValueText(values.envText ?? ""),
       cwd: values.cwd || undefined,
-      enabled: true,
-    });
-    form.reset();
+      enabled: server?.enabled ?? true,
+    };
+
+    if (mode === "edit" && server?.id) {
+      await updateMcp.mutateAsync(payload);
+    } else {
+      await createMcp.mutateAsync(payload);
+      form.reset();
+    }
     onSuccess?.();
   });
+
+  const mutation = mode === "edit" ? updateMcp : createMcp;
 
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
@@ -137,78 +168,114 @@ export function McpServerForm({ onSuccess }: BaseFormProps) {
           </select>
         </div>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="mcp-url">URL</Label>
-        <Input id="mcp-url" placeholder="https://..." {...form.register("url")} />
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
+      {usesUrlFields ? (
         <div className="space-y-2">
-          <Label htmlFor="mcp-command">Command</Label>
-          <Input id="mcp-command" placeholder="uvx / npx / python" {...form.register("command")} />
+          <Label htmlFor="mcp-url">URL</Label>
+          <Input id="mcp-url" placeholder="https://..." {...form.register("url")} />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="mcp-cwd">CWD</Label>
-          <Input id="mcp-cwd" placeholder="/abs/path" {...form.register("cwd")} />
-        </div>
+      ) : null}
+      {usesCommandFields ? (
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="mcp-command">Command</Label>
+              <Input
+                id="mcp-command"
+                placeholder="uvx / npx / python"
+                {...form.register("command")}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="mcp-cwd">CWD</Label>
+              <Input id="mcp-cwd" placeholder="/abs/path" {...form.register("cwd")} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="mcp-args">Args（每行一个）</Label>
+            <Textarea id="mcp-args" rows={3} {...form.register("argsText")} />
+          </div>
+        </>
+      ) : null}
+      <div className={usesUrlFields && usesCommandFields ? "grid gap-4 md:grid-cols-2" : "space-y-4"}>
+        {usesUrlFields ? (
+          <div className="space-y-2">
+            <Label htmlFor="mcp-headers">Headers（KEY=VALUE）</Label>
+            <Textarea id="mcp-headers" rows={4} {...form.register("headersText")} />
+          </div>
+        ) : null}
+        {usesCommandFields ? (
+          <div className="space-y-2">
+            <Label htmlFor="mcp-env">Env（KEY=VALUE）</Label>
+            <Textarea id="mcp-env" rows={4} {...form.register("envText")} />
+          </div>
+        ) : null}
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="mcp-args">Args（每行一个）</Label>
-        <Textarea id="mcp-args" rows={3} {...form.register("argsText")} />
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="mcp-headers">Headers（KEY=VALUE）</Label>
-          <Textarea id="mcp-headers" rows={4} {...form.register("headersText")} />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="mcp-env">Env（KEY=VALUE）</Label>
-          <Textarea id="mcp-env" rows={4} {...form.register("envText")} />
-        </div>
-      </div>
-      {createMcp.error ? (
+      {mutation.error ? (
         <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
-          {getErrorMessage(createMcp.error)}
+          {getErrorMessage(mutation.error)}
         </p>
       ) : null}
-      <Button type="submit" disabled={createMcp.isPending}>
-        {createMcp.isPending ? "创建中..." : "创建 MCP Server"}
+      <Button type="submit" disabled={mutation.isPending}>
+        {mutation.isPending
+          ? mode === "edit"
+            ? "保存中..."
+            : "创建中..."
+          : mode === "edit"
+            ? "保存 MCP Server"
+            : "创建 MCP Server"}
       </Button>
     </form>
   );
 }
 
-export function ChatModelForm({ onSuccess }: BaseFormProps) {
+export function ChatModelForm({
+  onSuccess,
+  mode = "create",
+  model,
+}: BaseFormProps & {
+  mode?: FormMode;
+  model?: Partial<LlmModelResponse> | null;
+}) {
   const createModel = useCreateChatModel();
+  const updateModel = useUpdateChatModel(model?.id);
   const form = useForm<ChatModelSchema>({
     resolver: zodResolver(chatModelSchema),
-    defaultValues: {
-      name: "",
-      provider: "openai_compatible",
-      model_name: "",
-      base_url: "",
+    values: {
+      name: model?.name ?? "",
+      provider: model?.provider ?? "openai_compatible",
+      model_name: model?.model_name ?? "",
+      base_url: model?.base_url ?? "",
       api_key: "",
-      description: "",
+      description: model?.description ?? "",
     },
   });
 
   const onSubmit = form.handleSubmit(async (values) => {
-    await createModel.mutateAsync({
+    const payload = {
       name: values.name,
       provider: values.provider,
       model_name: values.model_name,
       base_url: values.base_url || undefined,
       api_key: values.api_key || undefined,
-      temperature: 0.1,
-      context_window: 8000,
-      support_vision: false,
-      support_function_calling: true,
-      is_enabled: true,
-      is_default: false,
+      temperature: model?.temperature ?? 0.1,
+      context_window: model?.context_window ?? 8000,
+      support_vision: model?.support_vision ?? false,
+      support_function_calling: model?.support_function_calling ?? true,
+      is_enabled: model?.is_enabled ?? true,
+      is_default: model?.is_default ?? false,
       description: values.description || undefined,
-    });
-    form.reset();
+    };
+
+    if (mode === "edit" && model?.id) {
+      await updateModel.mutateAsync(payload);
+    } else {
+      await createModel.mutateAsync(payload);
+      form.reset();
+    }
     onSuccess?.();
   });
+
+  const mutation = mode === "edit" ? updateModel : createModel;
 
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
@@ -240,53 +307,75 @@ export function ChatModelForm({ onSuccess }: BaseFormProps) {
         <Label htmlFor="chat-model-description">描述</Label>
         <Textarea id="chat-model-description" rows={3} {...form.register("description")} />
       </div>
-      {createModel.error ? (
+      {mutation.error ? (
         <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
-          {getErrorMessage(createModel.error)}
+          {getErrorMessage(mutation.error)}
         </p>
       ) : null}
-      <Button type="submit" disabled={createModel.isPending}>
-        {createModel.isPending ? "创建中..." : "创建 Chat Model"}
+      <Button type="submit" disabled={mutation.isPending}>
+        {mutation.isPending
+          ? mode === "edit"
+            ? "保存中..."
+            : "创建中..."
+          : mode === "edit"
+            ? "保存 Chat Model"
+            : "创建 Chat Model"}
       </Button>
     </form>
   );
 }
 
-export function EmbeddingModelForm({ onSuccess }: BaseFormProps) {
+export function EmbeddingModelForm({
+  onSuccess,
+  mode = "create",
+  model,
+}: BaseFormProps & {
+  mode?: FormMode;
+  model?: Partial<EmbeddingModelResponse> | null;
+}) {
   const createModel = useCreateEmbeddingModel();
+  const updateModel = useUpdateEmbeddingModel(model?.id);
   const form = useForm<
     z.input<typeof embeddingModelSchema>,
     unknown,
     z.output<typeof embeddingModelSchema>
   >({
     resolver: zodResolver(embeddingModelSchema),
-    defaultValues: {
-      name: "",
-      type: "openai_compatible",
-      model_name: "",
-      endpoint: "",
+    values: {
+      name: model?.name ?? "",
+      type: model?.type ?? "openai_compatible",
+      model_name: model?.model_name ?? "",
+      endpoint: model?.endpoint ?? "",
       api_key: "",
-      local_model_path: "",
-      description: "",
+      local_model_path: model?.local_model_path ?? "",
+      description: model?.description ?? "",
     },
   });
 
   const onSubmit = form.handleSubmit(async (values) => {
-    await createModel.mutateAsync({
+    const payload = {
       name: values.name,
       type: values.type,
       model_name: values.model_name || undefined,
       endpoint: values.endpoint || undefined,
       api_key: values.api_key || undefined,
       local_model_path: values.local_model_path || undefined,
-      batch_size: 10,
-      is_enabled: true,
-      is_default: false,
+      batch_size: model?.batch_size ?? 10,
+      is_enabled: model?.is_enabled ?? true,
+      is_default: model?.is_default ?? false,
       description: values.description || undefined,
-    });
-    form.reset();
+    };
+
+    if (mode === "edit" && model?.id) {
+      await updateModel.mutateAsync(payload);
+    } else {
+      await createModel.mutateAsync(payload);
+      form.reset();
+    }
     onSuccess?.();
   });
+
+  const mutation = mode === "edit" ? updateModel : createModel;
 
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
@@ -331,46 +420,68 @@ export function EmbeddingModelForm({ onSuccess }: BaseFormProps) {
         <Label htmlFor="embedding-description">描述</Label>
         <Textarea id="embedding-description" rows={3} {...form.register("description")} />
       </div>
-      {createModel.error ? (
+      {mutation.error ? (
         <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
-          {getErrorMessage(createModel.error)}
+          {getErrorMessage(mutation.error)}
         </p>
       ) : null}
-      <Button type="submit" disabled={createModel.isPending}>
-        {createModel.isPending ? "创建中..." : "创建 Embedding Model"}
+      <Button type="submit" disabled={mutation.isPending}>
+        {mutation.isPending
+          ? mode === "edit"
+            ? "保存中..."
+            : "创建中..."
+          : mode === "edit"
+            ? "保存 Embedding Model"
+            : "创建 Embedding Model"}
       </Button>
     </form>
   );
 }
 
-export function RerankModelForm({ onSuccess }: BaseFormProps) {
+export function RerankModelForm({
+  onSuccess,
+  mode = "create",
+  model,
+}: BaseFormProps & {
+  mode?: FormMode;
+  model?: Partial<RerankModelResponse> | null;
+}) {
   const createModel = useCreateRerankModel();
+  const updateModel = useUpdateRerankModel(model?.id);
   const form = useForm<RerankModelSchema>({
     resolver: zodResolver(rerankModelSchema),
-    defaultValues: {
-      name: "",
-      provider: "dashscope",
-      model_name: "",
-      base_url: "",
+    values: {
+      name: model?.name ?? "",
+      provider: model?.provider ?? "dashscope",
+      model_name: model?.model_name ?? "",
+      base_url: model?.base_url ?? "",
       api_key: "",
-      description: "",
+      description: model?.description ?? "",
     },
   });
 
   const onSubmit = form.handleSubmit(async (values) => {
-    await createModel.mutateAsync({
+    const payload = {
       name: values.name,
       provider: values.provider,
       model_name: values.model_name || undefined,
       base_url: values.base_url || undefined,
       api_key: values.api_key || undefined,
-      is_enabled: true,
-      is_default: false,
+      is_enabled: model?.is_enabled ?? true,
+      is_default: model?.is_default ?? false,
       description: values.description || undefined,
-    });
-    form.reset();
+    };
+
+    if (mode === "edit" && model?.id) {
+      await updateModel.mutateAsync(payload);
+    } else {
+      await createModel.mutateAsync(payload);
+      form.reset();
+    }
     onSuccess?.();
   });
+
+  const mutation = mode === "edit" ? updateModel : createModel;
 
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
@@ -402,13 +513,19 @@ export function RerankModelForm({ onSuccess }: BaseFormProps) {
         <Label htmlFor="rerank-description">描述</Label>
         <Textarea id="rerank-description" rows={3} {...form.register("description")} />
       </div>
-      {createModel.error ? (
+      {mutation.error ? (
         <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
-          {getErrorMessage(createModel.error)}
+          {getErrorMessage(mutation.error)}
         </p>
       ) : null}
-      <Button type="submit" disabled={createModel.isPending}>
-        {createModel.isPending ? "创建中..." : "创建 Rerank Model"}
+      <Button type="submit" disabled={mutation.isPending}>
+        {mutation.isPending
+          ? mode === "edit"
+            ? "保存中..."
+            : "创建中..."
+          : mode === "edit"
+            ? "保存 Rerank Model"
+            : "创建 Rerank Model"}
       </Button>
     </form>
   );
