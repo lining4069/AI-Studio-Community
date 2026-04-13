@@ -79,6 +79,15 @@ function renderRoute(path: string) {
 }
 
 describe("SettingsRoute edit dialogs", () => {
+  test("opens create dialogs from add buttons", async () => {
+    const user = userEvent.setup();
+
+    renderRoute("/settings/mcp-servers");
+    await user.click(screen.getByRole("button", { name: "新增 MCP" }));
+    expect(screen.getByRole("heading", { name: "新增 MCP Server" })).toBeInTheDocument();
+    expect(screen.getByText("mcp-form:create:")).toBeInTheDocument();
+  });
+
   test("opens MCP edit dialog with initial server data", async () => {
     const user = userEvent.setup();
 

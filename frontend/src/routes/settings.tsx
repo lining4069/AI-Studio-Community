@@ -143,7 +143,14 @@ export function SettingsRoute() {
                 <CardTitle>MCP Servers</CardTitle>
                 <CardDescription>管理 streamable_http、stdio、sse 等 MCP 配置。</CardDescription>
               </div>
-              <Dialog open={dialog?.type === "mcp"} onOpenChange={(open) => setDialog(open ? dialog : null)}>
+              <Dialog
+                open={dialog?.type === "mcp"}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setDialog(null);
+                  }
+                }}
+              >
                 <DialogTrigger asChild>
                   <Button onClick={() => setDialog({ type: "mcp", mode: "create" })}>新增 MCP</Button>
                 </DialogTrigger>
@@ -210,7 +217,11 @@ export function SettingsRoute() {
               </div>
               <Dialog
                 open={dialog?.type === "chat-models"}
-                onOpenChange={(open) => setDialog(open ? dialog : null)}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setDialog(null);
+                  }
+                }}
               >
                 <DialogTrigger asChild>
                   <Button onClick={() => setDialog({ type: "chat-models", mode: "create" })}>
@@ -273,7 +284,11 @@ export function SettingsRoute() {
               </div>
               <Dialog
                 open={dialog?.type === "embedding-models"}
-                onOpenChange={(open) => setDialog(open ? dialog : null)}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setDialog(null);
+                  }
+                }}
               >
                 <DialogTrigger asChild>
                   <Button onClick={() => setDialog({ type: "embedding-models", mode: "create" })}>
@@ -341,7 +356,11 @@ export function SettingsRoute() {
               </div>
               <Dialog
                 open={dialog?.type === "rerank-models"}
-                onOpenChange={(open) => setDialog(open ? dialog : null)}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setDialog(null);
+                  }
+                }}
               >
                 <DialogTrigger asChild>
                   <Button onClick={() => setDialog({ type: "rerank-models", mode: "create" })}>
