@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 
 from app.common.exceptions import NotFoundException
+from app.common.responses import PageData
 from app.modules.agent.agent_factory import create_agent
 from app.modules.agent.config_loader import AgentConfigLoader
 from app.modules.agent.domain import DomainConfig, MCPConfigItem
@@ -90,10 +91,40 @@ class AgentService:
         return session
 
     async def list_sessions(
-        self, user_id: int, page: int = 1, page_size: int = 20
+        self,
+        user_id: int,
+        page: int = 1,
+        page_size: int = 20,
+        config_id: str | None = None,
     ) -> tuple[list[AgentSession], int]:
         """List sessions for user."""
-        return await self.repo.list_sessions(user_id, page, page_size)
+        return await self.repo.list_sessions(
+            user_id=user_id,
+            page=page,
+            page_size=page_size,
+            config_id=config_id,
+        )
+
+    async def list_sessions_page(
+        self,
+        user_id: int,
+        page: int = 1,
+        page_size: int = 20,
+        config_id: str | None = None,
+    ) -> PageData[AgentSessionResponse]:
+        """List sessions and shape them into paginated response data."""
+        sessions, total = await self.list_sessions(
+            user_id=user_id,
+            page=page,
+            page_size=page_size,
+            config_id=config_id,
+        )
+        return PageData(
+            items=[AgentSessionResponse.model_validate(session) for session in sessions],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
 
     # =========================================================================
     # Message & Step Access

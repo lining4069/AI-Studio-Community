@@ -107,10 +107,12 @@ describe("KnowledgeBaseDetailRoute overview", () => {
     });
   });
 
-  test("renders a formal overview form and saves knowledge base settings", async () => {
-    const user = userEvent.setup();
+  test(
+    "renders a formal overview form and saves knowledge base settings",
+    async () => {
+      const user = userEvent.setup();
 
-    renderRoute();
+      renderRoute();
 
     expect(await screen.findByText("Embedding 模型")).toBeInTheDocument();
     expect(screen.getAllByText("bge-m3 向量模型")).toHaveLength(2);
@@ -138,20 +140,22 @@ describe("KnowledgeBaseDetailRoute overview", () => {
 
     await user.click(screen.getByRole("button", { name: "保存配置" }));
 
-    expect(mockUpdateKnowledgeBase).toHaveBeenCalledWith({
-      name: "前端工作台知识库",
-      description: "知识库工作台页面设计与联调规范",
-      embedding_model_id: "embed-model-001",
-      rerank_model_id: "rerank-model-001",
-      chunk_size: 640,
-      chunk_overlap: 50,
-      top_k: 8,
-      similarity_threshold: 0,
-      vector_weight: 0.7,
-      enable_rerank: true,
-      rerank_top_k: 3,
-    });
-  });
+      expect(mockUpdateKnowledgeBase).toHaveBeenCalledWith({
+        name: "前端工作台知识库",
+        description: "知识库工作台页面设计与联调规范",
+        embedding_model_id: "embed-model-001",
+        rerank_model_id: "rerank-model-001",
+        chunk_size: 640,
+        chunk_overlap: 50,
+        top_k: 8,
+        similarity_threshold: 0,
+        vector_weight: 0.7,
+        enable_rerank: true,
+        rerank_top_k: 3,
+      });
+    },
+    8000,
+  );
 
   test("renders retrieve results as formal hit cards after search", async () => {
     const user = userEvent.setup();

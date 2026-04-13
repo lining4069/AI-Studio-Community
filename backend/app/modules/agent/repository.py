@@ -77,20 +77,24 @@ class AgentRepository:
         await self.db.flush()
 
     async def list_sessions(
-        self, user_id: int, page: int = 1, page_size: int = 20
+        self,
+        user_id: int,
+        page: int = 1,
+        page_size: int = 20,
+        config_id: str | None = None,
     ) -> tuple[list[AgentSession], int]:
         """List sessions for user (paginated)."""
-        count_stmt = (
-            select(func.count())
-            .select_from(AgentSession)
-            .where(AgentSession.user_id == user_id)
-        )
+        filters = [AgentSession.user_id == user_id]
+        if config_id is not None:
+            filters.append(AgentSession.config_id == config_id)
+
+        count_stmt = select(func.count()).select_from(AgentSession).where(*filters)
         total = (await self.db.execute(count_stmt)).scalar_one()
 
         offset = (page - 1) * page_size
         stmt = (
             select(AgentSession)
-            .where(AgentSession.user_id == user_id)
+            .where(*filters)
             .order_by(AgentSession.updated_at.desc())
             .offset(offset)
             .limit(page_size)

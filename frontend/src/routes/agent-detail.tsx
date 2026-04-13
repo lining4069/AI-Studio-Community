@@ -8,6 +8,7 @@ import {
   useAddAgentTool,
   useAgentConfigDetail,
   useCreateSession,
+  useSessions,
   useLinkAgentKb,
   useLinkAgentMcp,
   useRemoveAgentTool,
@@ -32,6 +33,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { SessionList } from "@/features/agent/session-list";
 import { createAgentSchema } from "@/lib/validators/agent";
 
 export function AgentDetailRoute() {
@@ -51,6 +53,7 @@ export function AgentDetailRoute() {
   const linkKb = useLinkAgentKb(configId);
   const unlinkKb = useUnlinkAgentKb(configId);
   const createSession = useCreateSession();
+  const sessions = useSessions(configId);
 
   const form = useForm<
     z.input<typeof createAgentSchema>,
@@ -121,6 +124,10 @@ export function AgentDetailRoute() {
     });
 
     navigate(`/chat/${session.id}`);
+  };
+
+  const handleOpenSession = (sessionId: string) => {
+    navigate(`/chat/${sessionId}`);
   };
 
   return (
@@ -422,6 +429,20 @@ export function AgentDetailRoute() {
           </TabsContent>
         ))}
       </Tabs>
+
+      <SessionList
+        sessions={sessions.data ?? []}
+        isLoading={sessions.isLoading}
+        isRefreshing={sessions.isFetching}
+        onRefresh={() => {
+          void sessions.refetch();
+        }}
+        onOpenSession={handleOpenSession}
+        onCreateSession={() => {
+          void handleNewSession();
+        }}
+        isCreatingSession={createSession.isPending}
+      />
     </div>
   );
 }

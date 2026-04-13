@@ -78,6 +78,13 @@ class TestSessionAPI:
 
         assert response.status_code in [401, 403, 404]
 
+    @pytest.mark.asyncio
+    async def test_list_sessions_requires_auth(self, client):
+        """Test list sessions without auth returns 401/403."""
+        response = await client.get("/v1/agent/sessions")
+
+        assert response.status_code in [401, 403]
+
 
 class TestRunAPI:
     """Test Run API endpoints at the HTTP layer."""

@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.common.responses import APIResponse
+from app.common.responses import APIResponse, PageData
 from app.dependencies import CurrentUser
 from app.dependencies.infras import DBAsyncSession
 from app.modules.agent.repository import AgentRepository
@@ -72,6 +72,27 @@ async def create_session(
     """Create a new agent session."""
     session = await service.create_session(current_user.id, data)
     return APIResponse(data=session, message="Session created")
+
+
+@router.get(
+    "/sessions",
+    response_model=APIResponse[PageData[AgentSessionResponse]],
+)
+async def list_sessions(
+    current_user: CurrentUser,
+    service: AgentServiceDep,
+    config_id: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    """List sessions for the current user, optionally filtered by config."""
+    data = await service.list_sessions_page(
+        current_user.id,
+        page=page,
+        page_size=page_size,
+        config_id=config_id,
+    )
+    return APIResponse(data=data)
 
 
 @router.get("/sessions/{session_id}", response_model=APIResponse[AgentSessionResponse])

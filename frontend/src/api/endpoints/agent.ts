@@ -89,7 +89,30 @@ export function useCreateSession() {
   });
 }
 
+export function useSessions(configId?: string, page = 1, pageSize = 20) {
+  return useQuery({
+    queryKey: ["agent", "sessions", configId ?? "all", page, pageSize],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        page_size: String(pageSize),
+      });
+
+      if (configId) {
+        params.set("config_id", configId);
+      }
+
+      const response = await apiClient.get<{
+        items?: AgentSessionResponse[] | null;
+      }>(`/v1/agent/sessions?${params.toString()}`);
+      return extractListData(response.data);
+    },
+  });
+}
+
 export function useRunAgent(sessionId?: string) {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: async (payload: AgentRunRequest) => {
       const response = await apiClient.post<AgentRunDetailResponse | Record<string, unknown>, AgentRunRequest>(
@@ -97,6 +120,16 @@ export function useRunAgent(sessionId?: string) {
         payload,
       );
       return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent", "sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["agent", "sessions", sessionId] });
+      queryClient.invalidateQueries({
+        queryKey: ["agent", "sessions", sessionId, "messages"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["agent", "sessions", sessionId, "steps"],
+      });
     },
   });
 }

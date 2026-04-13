@@ -294,6 +294,29 @@ async def test_create_session_defaults_title_and_binds_config():
 
 
 @pytest.mark.asyncio
+async def test_list_sessions_forwards_config_filter():
+    repo = AsyncMock()
+    repo.list_sessions.return_value = ([], 0)
+    service = AgentService(repo, AsyncMock())
+
+    sessions, total = await service.list_sessions(
+        1,
+        page=2,
+        page_size=10,
+        config_id="cfg-1",
+    )
+
+    repo.list_sessions.assert_awaited_once_with(
+        user_id=1,
+        page=2,
+        page_size=10,
+        config_id="cfg-1",
+    )
+    assert sessions == []
+    assert total == 0
+
+
+@pytest.mark.asyncio
 async def test_run_agent_updates_default_session_title_from_first_message():
     repo = AsyncMock()
     repo.get_session.return_value = SimpleNamespace(
